@@ -17,8 +17,8 @@ The application can be used manually through the admin UI before any external ap
 - Manual admin-paid expenses and reimbursements.
 - Ledger transaction history with debit/credit lines.
 - Ledger correction workflow using linked reversal transactions.
-- Source app management for Bingo, Runes of Power, and future API integrations.
-- MySQL schema for apps, API keys, admins, accounts, payment requests, payout requests, reconciliations, ledger transactions, ledger entries, idempotency, and audit logs.
+- Source app management for future API integrations.
+- Automatic database bootstrap for required tables, columns, indexes, and system records.
 - Minimal API layer, ready to expand after the application workflow is settled.
 - CLI helpers to create source apps, API keys, and admins.
 
@@ -31,19 +31,22 @@ The application can be used manually through the admin UI before any external ap
 
 ## Install
 
-1. Create a database.
-2. Import the schema and seed data:
-
-```bash
-mysql -u USER -p DATABASE < database/schema.sql
-mysql -u USER -p DATABASE < database/seed.sql
-```
-
-3. Copy `.env.example` to `.env` and update the DB settings.
+1. Create an empty database, or set `DB_BOOTSTRAP_CREATE_DATABASE=true` if your DB user is allowed to create databases.
+2. Copy `.env.example` to `.env` and update the DB settings.
 
 ```bash
 cp .env.example .env
 ```
+
+3. The application now bootstraps the database automatically on load. It creates/updates the required tables, columns, indexes, and system records.
+
+You can also run the bootstrap manually:
+
+```bash
+php db_bootstrap.php
+```
+
+Manual SQL imports are no longer required for fresh installs. `database/schema.sql` is retained as a reference/export only, and `database/seed.sql` is intentionally empty.
 
 4. Set a private fallback admin UI password in `.env`:
 
@@ -124,12 +127,12 @@ When this is enabled, the header no longer shows the acting-admin dropdown. It s
 ## Recommended first-use workflow
 
 1. Open **Settings** and create your treasury admins.
-2. Confirm the seeded source apps exist: Manual Admin, Bingo, and Runes of Power.
+2. Open **Chart of Accounts** and create your own Revenue and Expense GL accounts, such as Bingo Entry Fees, Runes of Power Contributions, Prize Payouts, or Giveaways.
 3. Open **Dashboard** and post the current official treasury balance as an opening balance.
-4. Create payment requests as players pay entry fees or clan contributions.
+4. Create Money In requests as players pay entry fees or clan contributions.
 5. Mark payments as received by the admin who physically received the GP.
-6. Use **Reconciliation** when that admin transfers the GP into the official treasury.
-7. Use **Payouts** for prizes and payment obligations.
+6. Use **Bank Reconciliation** when that admin transfers the GP into the official treasury.
+7. Use **Money Out** for prizes and payment obligations.
 8. Use **Ledger** to review the immutable debit/credit history.
 
 
@@ -285,59 +288,57 @@ Creation forms have been moved to their own pages and are available from the sid
 No database migration is required.
 
 
-## Chart of Accounts upgrade
+## Chart of Accounts and manual request flow
 
-This build adds a first-class Chart of Accounts.
+The web UI is now manual-accounting first:
 
-New installs already include the required columns in `database/schema.sql` and the default accounts in `database/seed.sql`.
-
-Existing installs must run this migration once after deploying the files:
-
-```bash
-mysql -u USER -p DATABASE < database/migrations/2026_06_26_chart_of_accounts.sql
-```
-
-The Chart of Accounts page lets you create and archive revenue and expense accounts. System accounts remain locked because they power the ledger mechanics.
-
-Default posting accounts are now user-managed from Chart of Accounts. Create the revenue and expense accounts you want to report against, such as Bingo Entry Fees, Runes of Power Contributions, Prize Payouts, or Giveaways.
-
-Money-in requests now choose a Revenue account. Money-out requests and manual expenses now choose an Expense account. Existing open requests are assigned sensible defaults by the migration.
-
-## Chart of Accounts lifecycle update
-
-This build adds account editing and safer account lifecycle controls:
-
+- Money In uses payer, description, amount, and a Revenue GL account.
+- Money Out uses payee, description, amount, and an Expense GL account.
+- Source app/source ID fields are hidden from the web UI and are reserved for later API integrations.
+- Manual web entries automatically use the internal `Manual Entry` source app.
 - User-created revenue and expense accounts can be edited/renamed.
-- Account code, account name, and default source app can be updated.
-- System accounts remain locked.
-- Accounts with no ledger entries, money-in references, money-out references, or child accounts can be deleted.
-- Accounts with ledger/request history should be archived instead, preserving historical reporting.
-- The RuneScape parchment UI has been slightly darkened to reduce bright white surfaces.
+- Accounts with no ledger entries, request references, or child accounts can be deleted.
+- Accounts with ledger/request history should be archived instead.
+- System accounts remain locked because they power the ledger mechanics.
+- No default posting accounts are created automatically. Create the GL accounts you want to report against from **Chart of Accounts**.
 
-No database migration is required for this update if the Chart of Accounts migration has already been applied.
+## Automatic database bootstrap
 
+This build adds `db_bootstrap.php` and `Treasury\DatabaseBootstrap`. The app runs the bootstrapper during normal loading when `DB_BOOTSTRAP_ENABLED=true`.
 
-## Repairing a missing Chart of Accounts migration
+The bootstrapper is intentionally strict about what it creates. It creates only:
 
-If you see an error like `Unknown column revenue_account_id`, the Chart of Accounts database migration has not been applied to the live database. Run:
+- Required tables, columns, and indexes
+- The internal `Manual Entry` source app used by web-created transactions
+- Required locked system accounts:
+  - `1000` Official Treasury
+  - `1100` Admin Held Funds
+  - `2000` Admin Reimbursements Payable
+  - `3000` Opening Balance Equity
+  - `4000` Revenue
+  - `5000` Expenses
 
-```bash
-php bin/repair-chart-of-accounts.php
+It does **not** create sample admins, API keys, Bingo/Runes of Power source apps, or posting GL accounts such as Entry Fees, Clan Contributions, or Prize Expenses. Those should be created manually from the UI so your reporting categories match how your clan actually runs treasury.
+
+Useful `.env` settings:
+
+```env
+DB_BOOTSTRAP_ENABLED=true
+DB_BOOTSTRAP_CREATE_DATABASE=false
+DB_BOOTSTRAP_RUN_EVERY_REQUEST=false
 ```
 
-The repair script checks whether the required columns, indexes, foreign keys, default accounts, and backfilled request account links already exist before changing anything.
+For a full reset:
 
-
-## Manual Xero-style request flow
-
-This build hides source app/source ID fields from the web UI. Manual web entries are automatically recorded against the `Manual Entry` source app. Later API integrations will provide the real source app and source IDs.
-
-Money-in requests now follow the finance workflow: payer, description, amount, and revenue account. Money-out requests use payee, description, amount, and expense account. The old purpose/type selectors are no longer shown in the web UI; the selected GL account is the category.
-
-After deploying, run this optional cleanup migration to rename the manual source app:
-
-```bash
-mysql -u USER -p DATABASE < database/migrations/2026_06_26_manual_xero_flow.sql
+```sql
+DROP DATABASE your_treasury_db;
+CREATE DATABASE your_treasury_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
-Earlier starter accounts such as Bingo Entry Fees or Runes of Power Prize Payouts can be renamed, deleted if unused, or archived from Chart of Accounts. System header accounts are no longer selectable for Money In/Out requests.
+Then load the app or run:
+
+```bash
+php db_bootstrap.php
+```
+
+After the app loads, create your admins and GL accounts from the UI.

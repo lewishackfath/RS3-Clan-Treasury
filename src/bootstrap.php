@@ -15,6 +15,11 @@ spl_autoload_register(function (string $class): void {
     }
 });
 
+use Treasury\DatabaseBootstrap;
 use Treasury\Support\Env;
 
 Env::load(dirname(__DIR__) . '/.env');
+
+if (!defined('TREASURY_SKIP_AUTO_DB_BOOTSTRAP') && Env::bool('DB_BOOTSTRAP_ENABLED', true)) {
+    DatabaseBootstrap::run();
+}
