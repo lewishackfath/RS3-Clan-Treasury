@@ -39,10 +39,12 @@ final class TreasuryQueryService
         }
 
         $sql = 'SELECT pr.*, a.name AS app_name, a.slug AS app_slug,
-                       admin.display_name AS received_by_display_name, admin.rsn AS received_by_rsn
+                       admin.display_name AS received_by_display_name, admin.rsn AS received_by_rsn,
+                       revenue.code AS revenue_account_code, revenue.name AS revenue_account_name
                 FROM treasury_payment_requests pr
                 JOIN treasury_apps a ON a.id = pr.app_id
-                LEFT JOIN treasury_admins admin ON admin.id = pr.received_by_admin_id';
+                LEFT JOIN treasury_admins admin ON admin.id = pr.received_by_admin_id
+                LEFT JOIN treasury_accounts revenue ON revenue.id = pr.revenue_account_id';
         if ($where) {
             $sql .= ' WHERE ' . implode(' AND ', $where);
         }
@@ -57,10 +59,12 @@ final class TreasuryQueryService
     {
         $stmt = Database::pdo()->prepare(
             'SELECT pr.*, a.name AS app_name, a.slug AS app_slug,
-                    admin.display_name AS received_by_display_name, admin.rsn AS received_by_rsn
+                    admin.display_name AS received_by_display_name, admin.rsn AS received_by_rsn,
+                    revenue.code AS revenue_account_code, revenue.name AS revenue_account_name
              FROM treasury_payment_requests pr
              JOIN treasury_apps a ON a.id = pr.app_id
              LEFT JOIN treasury_admins admin ON admin.id = pr.received_by_admin_id
+             LEFT JOIN treasury_accounts revenue ON revenue.id = pr.revenue_account_id
              WHERE pr.request_uuid = :uuid LIMIT 1'
         );
         $stmt->execute(['uuid' => $uuid]);
@@ -87,10 +91,12 @@ final class TreasuryQueryService
         }
 
         $sql = 'SELECT pr.*, a.name AS app_name, a.slug AS app_slug,
-                       admin.display_name AS paid_by_display_name, admin.rsn AS paid_by_rsn
+                       admin.display_name AS paid_by_display_name, admin.rsn AS paid_by_rsn,
+                       expense.code AS expense_account_code, expense.name AS expense_account_name
                 FROM treasury_payout_requests pr
                 JOIN treasury_apps a ON a.id = pr.app_id
-                LEFT JOIN treasury_admins admin ON admin.id = pr.paid_by_admin_id';
+                LEFT JOIN treasury_admins admin ON admin.id = pr.paid_by_admin_id
+                LEFT JOIN treasury_accounts expense ON expense.id = pr.expense_account_id';
         if ($where) {
             $sql .= ' WHERE ' . implode(' AND ', $where);
         }
@@ -112,10 +118,12 @@ final class TreasuryQueryService
 
         $stmt = Database::pdo()->prepare(
             'SELECT pr.*, a.name AS app_name, a.slug AS app_slug,
-                    admin.display_name AS received_by_display_name, admin.rsn AS received_by_rsn
+                    admin.display_name AS received_by_display_name, admin.rsn AS received_by_rsn,
+                    revenue.code AS revenue_account_code, revenue.name AS revenue_account_name
              FROM treasury_payment_requests pr
              JOIN treasury_apps a ON a.id = pr.app_id
              JOIN treasury_admins admin ON admin.id = pr.received_by_admin_id
+             LEFT JOIN treasury_accounts revenue ON revenue.id = pr.revenue_account_id
              WHERE ' . $where . '
              ORDER BY admin.display_name ASC, pr.received_at ASC'
         );

@@ -1,35 +1,18 @@
-INSERT INTO treasury_apps (name, slug, description, is_active)
-VALUES
-('Manual Admin', 'manual_admin', 'Manual treasury administration actions', 1),
-('Bingo', 'bingo', 'RS3 clan bingo treasury source', 1),
-('Runes of Power', 'runes_of_power', 'Runes of Power treasury source', 1)
-ON DUPLICATE KEY UPDATE name = VALUES(name), description = VALUES(description), is_active = VALUES(is_active);
+-- Chart of Accounts upgrade for existing RS3 GP Treasury installs.
+-- Run this once after deploying this build:
+--   mysql -u USER -p DATABASE < database/migrations/2026_06_26_chart_of_accounts.sql
 
-INSERT INTO treasury_accounts (code, name, account_type, normal_balance, is_system, is_active)
-VALUES
-('1000', 'Official Treasury', 'asset', 'debit', 1, 1),
-('1100', 'Admin Held Funds', 'asset', 'debit', 1, 1),
-('2000', 'Admin Reimbursements Payable', 'liability', 'credit', 1, 1),
-('3000', 'Opening Balance Equity', 'equity', 'credit', 1, 1),
-('4000', 'Income', 'income', 'credit', 1, 1),
-('4100', 'Entry Fee Income', 'income', 'credit', 1, 1),
-('4300', 'Clan Contributions', 'income', 'credit', 1, 1),
-('5000', 'Expenses', 'expense', 'debit', 1, 1),
-('5100', 'Prize Expenses', 'expense', 'debit', 1, 1),
-('6000', 'General Expenses', 'expense', 'debit', 1, 1)
-ON DUPLICATE KEY UPDATE name = VALUES(name), account_type = VALUES(account_type), normal_balance = VALUES(normal_balance);
+ALTER TABLE treasury_payment_requests
+    ADD COLUMN revenue_account_id BIGINT UNSIGNED NULL AFTER description,
+    ADD CONSTRAINT fk_treasury_payment_revenue_account FOREIGN KEY (revenue_account_id) REFERENCES treasury_accounts(id),
+    ADD INDEX idx_treasury_payment_revenue_account (revenue_account_id);
 
-UPDATE treasury_accounts child
-JOIN treasury_accounts parent ON parent.code = '4000'
-SET child.parent_account_id = parent.id
-WHERE child.code IN ('4100','4300');
+ALTER TABLE treasury_payout_requests
+    ADD COLUMN expense_account_id BIGINT UNSIGNED NULL AFTER description,
+    ADD CONSTRAINT fk_treasury_payout_expense_account FOREIGN KEY (expense_account_id) REFERENCES treasury_accounts(id),
+    ADD INDEX idx_treasury_payout_expense_account (expense_account_id);
 
-UPDATE treasury_accounts child
-JOIN treasury_accounts parent ON parent.code = '5000'
-SET child.parent_account_id = parent.id
-WHERE child.code IN ('5100','6000');
-
-
+-- Seed app-specific posting accounts.
 INSERT INTO treasury_accounts (code, name, account_type, parent_account_id, app_id, normal_balance, is_system, is_active)
 SELECT '4110', 'Bingo Entry Fees', 'income', parent.id, app.id, 'credit', 0, 1
 FROM treasury_accounts parent
@@ -58,12 +41,24 @@ JOIN treasury_apps app ON app.slug = 'runes_of_power'
 WHERE parent.code = '5000'
 ON DUPLICATE KEY UPDATE name = VALUES(name), account_type = VALUES(account_type), parent_account_id = VALUES(parent_account_id), app_id = VALUES(app_id), normal_balance = VALUES(normal_balance);
 
-UPDATE treasury_accounts child
-JOIN treasury_accounts parent ON parent.code = '4000'
-SET child.parent_account_id = parent.id
-WHERE child.code IN ('4110','4210');
+-- Attach existing open requests to sensible defaults.
+UPDATE treasury_payment_requests pr
+JOIN treasury_accounts acc ON acc.code = CASE
+    WHEN pr.purpose = 'clan_contribution' THEN '4300'
+    WHEN pr.purpose = 'entry_fee' AND pr.app_id = (SELECT id FROM treasury_apps WHERE slug = 'bingo' LIMIT 1) THEN '4110'
+    WHEN pr.purpose = 'entry_fee' AND pr.app_id = (SELECT id FROM treasury_apps WHERE slug = 'runes_of_power' LIMIT 1) THEN '4210'
+    WHEN pr.purpose = 'entry_fee' THEN '4100'
+    ELSE '4300'
+END
+SET pr.revenue_account_id = acc.id
+WHERE pr.revenue_account_id IS NULL;
 
-UPDATE treasury_accounts child
-JOIN treasury_accounts parent ON parent.code = '5000'
-SET child.parent_account_id = parent.id
-WHERE child.code IN ('5110','5210');
+UPDATE treasury_payout_requests pr
+JOIN treasury_accounts acc ON acc.code = CASE
+    WHEN pr.payout_type = 'prize' AND pr.app_id = (SELECT id FROM treasury_apps WHERE slug = 'bingo' LIMIT 1) THEN '5110'
+    WHEN pr.payout_type = 'prize' AND pr.app_id = (SELECT id FROM treasury_apps WHERE slug = 'runes_of_power' LIMIT 1) THEN '5210'
+    WHEN pr.payout_type = 'prize' THEN '5100'
+    ELSE '6000'
+END
+SET pr.expense_account_id = acc.id
+WHERE pr.expense_account_id IS NULL;

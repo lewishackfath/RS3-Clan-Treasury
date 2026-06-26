@@ -19,12 +19,17 @@ final class PayoutRequestService
             return $existing;
         }
 
+        $accounts = new AccountService();
+        $expenseAccountId = !empty($data['expense_account_id'])
+            ? $accounts->requirePostingAccount((int)$data['expense_account_id'], ['expense'])
+            : $accounts->defaultExpenseAccountId($context->appId, (string)$data['payout_type']);
+
         $uuid = Uuid::v4();
         $stmt = Database::pdo()->prepare(
             'INSERT INTO treasury_payout_requests
-             (request_uuid, app_id, source_type, source_id, payee_rsn, amount, payout_type, description, metadata)
+             (request_uuid, app_id, source_type, source_id, payee_rsn, amount, payout_type, description, expense_account_id, metadata)
              VALUES
-             (:request_uuid, :app_id, :source_type, :source_id, :payee_rsn, :amount, :payout_type, :description, :metadata)'
+             (:request_uuid, :app_id, :source_type, :source_id, :payee_rsn, :amount, :payout_type, :description, :expense_account_id, :metadata)'
         );
         $stmt->execute([
             'request_uuid' => $uuid,
@@ -35,6 +40,7 @@ final class PayoutRequestService
             'amount' => (int)$data['amount'],
             'payout_type' => $data['payout_type'],
             'description' => $data['description'] ?? $data['payout_type'] . ' to ' . $data['payee_rsn'],
+            'expense_account_id' => $expenseAccountId,
             'metadata' => isset($data['metadata']) && is_array($data['metadata']) ? json_encode($data['metadata'], JSON_UNESCAPED_SLASHES) : null,
         ]);
 
@@ -49,10 +55,13 @@ final class PayoutRequestService
         $stmt = Database::pdo()->prepare(
             'SELECT pr.*, a.slug AS app_slug, a.name AS app_name,
                     admin.display_name AS paid_by_display_name,
-                    admin.rsn AS paid_by_rsn
+                    admin.rsn AS paid_by_rsn,
+                    expense.code AS expense_account_code,
+                    expense.name AS expense_account_name
              FROM treasury_payout_requests pr
              JOIN treasury_apps a ON a.id = pr.app_id
              LEFT JOIN treasury_admins admin ON admin.id = pr.paid_by_admin_id
+             LEFT JOIN treasury_accounts expense ON expense.id = pr.expense_account_id
              WHERE pr.request_uuid = :uuid
              LIMIT 1'
         );
@@ -83,9 +92,9 @@ final class PayoutRequestService
 
             $accounts = new AccountService();
             $treasuryAccountId = $accounts->accountIdByCode('1000');
-            $expenseAccountId = $row['payout_type'] === 'prize'
-                ? $accounts->accountIdByCode('5100')
-                : $accounts->accountIdByCode('6000');
+            $expenseAccountId = !empty($row['expense_account_id'])
+                ? $accounts->requirePostingAccount((int)$row['expense_account_id'], ['expense'])
+                : $accounts->defaultExpenseAccountId((int)$row['app_id'], (string)$row['payout_type']);
 
             $transaction = (new LedgerService())->postTransaction([
                 'app_id' => (int)$row['app_id'],
@@ -155,9 +164,9 @@ final class PayoutRequestService
 
             $accounts = new AccountService();
             $payableAccountId = $accounts->accountIdByCode('2000');
-            $expenseAccountId = $row['payout_type'] === 'prize'
-                ? $accounts->accountIdByCode('5100')
-                : $accounts->accountIdByCode('6000');
+            $expenseAccountId = !empty($row['expense_account_id'])
+                ? $accounts->requirePostingAccount((int)$row['expense_account_id'], ['expense'])
+                : $accounts->defaultExpenseAccountId((int)$row['app_id'], (string)$row['payout_type']);
 
             $transaction = (new LedgerService())->postTransaction([
                 'app_id' => (int)$row['app_id'],
@@ -380,10 +389,13 @@ final class PayoutRequestService
         $stmt = Database::pdo()->prepare(
             'SELECT pr.*, a.slug AS app_slug, a.name AS app_name,
                     admin.display_name AS paid_by_display_name,
-                    admin.rsn AS paid_by_rsn
+                    admin.rsn AS paid_by_rsn,
+                    expense.code AS expense_account_code,
+                    expense.name AS expense_account_name
              FROM treasury_payout_requests pr
              JOIN treasury_apps a ON a.id = pr.app_id
              LEFT JOIN treasury_admins admin ON admin.id = pr.paid_by_admin_id
+             LEFT JOIN treasury_accounts expense ON expense.id = pr.expense_account_id
              WHERE pr.app_id = :app_id AND pr.source_type = :source_type AND pr.source_id = :source_id
              LIMIT 1'
         );
@@ -415,10 +427,13 @@ final class PayoutRequestService
         $stmt = Database::pdo()->prepare(
             'SELECT pr.*, a.slug AS app_slug, a.name AS app_name,
                     admin.display_name AS paid_by_display_name,
-                    admin.rsn AS paid_by_rsn
+                    admin.rsn AS paid_by_rsn,
+                    expense.code AS expense_account_code,
+                    expense.name AS expense_account_name
              FROM treasury_payout_requests pr
              JOIN treasury_apps a ON a.id = pr.app_id
              LEFT JOIN treasury_admins admin ON admin.id = pr.paid_by_admin_id
+             LEFT JOIN treasury_accounts expense ON expense.id = pr.expense_account_id
              WHERE pr.id = :id
              LIMIT 1'
         );
@@ -444,6 +459,11 @@ final class PayoutRequestService
             'amount' => (int)$row['amount'],
             'payout_type' => $row['payout_type'],
             'description' => $row['description'],
+            'expense_account' => !empty($row['expense_account_id']) ? [
+                'id' => (int)$row['expense_account_id'],
+                'code' => $row['expense_account_code'] ?? null,
+                'name' => $row['expense_account_name'] ?? null,
+            ] : null,
             'status' => $row['status'],
             'paid_by_admin' => $row['paid_by_admin_id'] ? [
                 'admin_id' => (int)$row['paid_by_admin_id'],

@@ -21,6 +21,181 @@ final class AccountService
         return (int)$id;
     }
 
+    public function accountById(int $id): array
+    {
+        $stmt = Database::pdo()->prepare(
+            'SELECT ta.*, parent.code AS parent_code, parent.name AS parent_name, app.name AS app_name, app.slug AS app_slug
+             FROM treasury_accounts ta
+             LEFT JOIN treasury_accounts parent ON parent.id = ta.parent_account_id
+             LEFT JOIN treasury_apps app ON app.id = ta.app_id
+             WHERE ta.id = :id
+             LIMIT 1'
+        );
+        $stmt->execute(['id' => $id]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            throw new \RuntimeException('Treasury account not found', 404);
+        }
+
+        return $row;
+    }
+
+    public function requirePostingAccount(int $id, array $allowedTypes): int
+    {
+        if ($id <= 0) {
+            throw new \InvalidArgumentException('Choose a ledger account.');
+        }
+
+        $account = $this->accountById($id);
+        if (!in_array($account['account_type'], $allowedTypes, true)) {
+            throw new \InvalidArgumentException('The selected ledger account cannot be used for this transaction.');
+        }
+        if ((int)$account['is_active'] !== 1) {
+            throw new \InvalidArgumentException('The selected ledger account is inactive.');
+        }
+
+        return (int)$account['id'];
+    }
+
+    public function all(bool $includeInactive = true): array
+    {
+        $sql = 'SELECT ta.*, parent.code AS parent_code, parent.name AS parent_name,
+                       app.name AS app_name, app.slug AS app_slug,
+                       COALESCE(usage_counts.ledger_entry_count, 0) AS ledger_entry_count
+                FROM treasury_accounts ta
+                LEFT JOIN treasury_accounts parent ON parent.id = ta.parent_account_id
+                LEFT JOIN treasury_apps app ON app.id = ta.app_id
+                LEFT JOIN (
+                    SELECT account_id, COUNT(*) AS ledger_entry_count
+                    FROM treasury_ledger_entries
+                    GROUP BY account_id
+                ) usage_counts ON usage_counts.account_id = ta.id';
+        if (!$includeInactive) {
+            $sql .= ' WHERE ta.is_active = 1';
+        }
+        $sql .= ' ORDER BY
+                    FIELD(ta.account_type, "asset", "liability", "equity", "income", "expense", "clearing"),
+                    ta.code ASC';
+
+        return Database::pdo()->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function postingAccounts(string $type): array
+    {
+        if (!in_array($type, ['income', 'expense'], true)) {
+            throw new \InvalidArgumentException('Unsupported posting account type.');
+        }
+
+        $stmt = Database::pdo()->prepare(
+            'SELECT ta.*, app.name AS app_name, app.slug AS app_slug
+             FROM treasury_accounts ta
+             LEFT JOIN treasury_apps app ON app.id = ta.app_id
+             WHERE ta.account_type = :type
+               AND ta.is_active = 1
+               AND ta.code NOT IN ("4000", "5000")
+             ORDER BY ta.code ASC'
+        );
+        $stmt->execute(['type' => $type]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function createPostingAccount(array $data, int $actorAdminId): array
+    {
+        $type = (string)($data['account_type'] ?? '');
+        if (!in_array($type, ['income', 'expense'], true)) {
+            throw new \InvalidArgumentException('Only revenue and expense accounts can be created from the admin UI.');
+        }
+
+        $code = strtoupper(trim((string)($data['code'] ?? '')));
+        $name = trim((string)($data['name'] ?? ''));
+        $appId = (int)($data['app_id'] ?? 0);
+
+        if ($code === '' || $name === '') {
+            throw new \InvalidArgumentException('Account code and name are required.');
+        }
+        if (!preg_match('/^[A-Z0-9:_-]{2,50}$/', $code)) {
+            throw new \InvalidArgumentException('Account code can only contain letters, numbers, colon, underscore, or dash.');
+        }
+
+        $parentId = $this->accountIdByCode($type === 'income' ? '4000' : '5000');
+        $normalBalance = $type === 'income' ? 'credit' : 'debit';
+
+        $stmt = Database::pdo()->prepare(
+            'INSERT INTO treasury_accounts
+             (code, name, account_type, parent_account_id, app_id, normal_balance, is_system, is_active)
+             VALUES
+             (:code, :name, :account_type, :parent_account_id, :app_id, :normal_balance, 0, 1)'
+        );
+        $stmt->execute([
+            'code' => $code,
+            'name' => $name,
+            'account_type' => $type,
+            'parent_account_id' => $parentId,
+            'app_id' => $appId > 0 ? $appId : null,
+            'normal_balance' => $normalBalance,
+        ]);
+
+        $created = $this->accountById((int)Database::pdo()->lastInsertId());
+        AuditService::log('account.created', 'treasury_account', (string)$created['id'], null, $created, null, $actorAdminId);
+
+        return $created;
+    }
+
+    public function setActive(int $accountId, bool $active, int $actorAdminId): array
+    {
+        $before = $this->accountById($accountId);
+        if ((int)$before['is_system'] === 1) {
+            throw new \RuntimeException('System accounts cannot be archived or restored.');
+        }
+
+        $stmt = Database::pdo()->prepare('UPDATE treasury_accounts SET is_active = :active WHERE id = :id');
+        $stmt->execute([
+            'active' => $active ? 1 : 0,
+            'id' => $accountId,
+        ]);
+
+        $after = $this->accountById($accountId);
+        AuditService::log($active ? 'account.restored' : 'account.archived', 'treasury_account', (string)$accountId, $before, $after, null, $actorAdminId);
+
+        return $after;
+    }
+
+    public function defaultRevenueAccountId(int $appId, string $purpose): int
+    {
+        if ($purpose === 'clan_contribution') {
+            return $this->accountIdByCode('4300');
+        }
+
+        $slug = $this->appSlug($appId);
+        if ($purpose === 'entry_fee') {
+            $code = match ($slug) {
+                'bingo' => '4110',
+                'runes_of_power' => '4210',
+                default => '4100',
+            };
+
+            return $this->accountIdByCode($code);
+        }
+
+        return $this->accountIdByCode('4300');
+    }
+
+    public function defaultExpenseAccountId(int $appId, string $payoutType): int
+    {
+        if ($payoutType === 'prize') {
+            $slug = $this->appSlug($appId);
+            $code = match ($slug) {
+                'bingo' => '5110',
+                'runes_of_power' => '5210',
+                default => '5100',
+            };
+
+            return $this->accountIdByCode($code);
+        }
+
+        return $this->accountIdByCode('6000');
+    }
+
     public function ensureAdminHeldAccount(int $adminId): int
     {
         $pdo = Database::pdo();
@@ -57,5 +232,18 @@ final class AccountService
         ]);
 
         return (int)$pdo->lastInsertId();
+    }
+
+    private function appSlug(int $appId): ?string
+    {
+        if ($appId <= 0) {
+            return null;
+        }
+
+        $stmt = Database::pdo()->prepare('SELECT slug FROM treasury_apps WHERE id = :id LIMIT 1');
+        $stmt->execute(['id' => $appId]);
+        $slug = $stmt->fetchColumn();
+
+        return $slug ? (string)$slug : null;
     }
 }

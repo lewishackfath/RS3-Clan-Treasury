@@ -21,12 +21,17 @@ final class PaymentRequestService
             return $existing;
         }
 
+        $accounts = new AccountService();
+        $revenueAccountId = !empty($data['revenue_account_id'])
+            ? $accounts->requirePostingAccount((int)$data['revenue_account_id'], ['income'])
+            : $accounts->defaultRevenueAccountId($context->appId, (string)$data['purpose']);
+
         $uuid = Uuid::v4();
         $stmt = $pdo->prepare(
             'INSERT INTO treasury_payment_requests
-             (request_uuid, app_id, source_type, source_id, player_rsn, amount, purpose, description, metadata)
+             (request_uuid, app_id, source_type, source_id, player_rsn, amount, purpose, description, revenue_account_id, metadata)
              VALUES
-             (:request_uuid, :app_id, :source_type, :source_id, :player_rsn, :amount, :purpose, :description, :metadata)'
+             (:request_uuid, :app_id, :source_type, :source_id, :player_rsn, :amount, :purpose, :description, :revenue_account_id, :metadata)'
         );
         $stmt->execute([
             'request_uuid' => $uuid,
@@ -37,6 +42,7 @@ final class PaymentRequestService
             'amount' => (int)$data['amount'],
             'purpose' => $data['purpose'],
             'description' => $data['description'] ?? $data['purpose'] . ' from ' . $data['player_rsn'],
+            'revenue_account_id' => $revenueAccountId,
             'metadata' => isset($data['metadata']) && is_array($data['metadata']) ? json_encode($data['metadata'], JSON_UNESCAPED_SLASHES) : null,
         ]);
 
@@ -51,10 +57,13 @@ final class PaymentRequestService
         $stmt = Database::pdo()->prepare(
             'SELECT pr.*, a.slug AS app_slug, a.name AS app_name,
                     admin.display_name AS received_by_display_name,
-                    admin.rsn AS received_by_rsn
+                    admin.rsn AS received_by_rsn,
+                    revenue.code AS revenue_account_code,
+                    revenue.name AS revenue_account_name
              FROM treasury_payment_requests pr
              JOIN treasury_apps a ON a.id = pr.app_id
              LEFT JOIN treasury_admins admin ON admin.id = pr.received_by_admin_id
+             LEFT JOIN treasury_accounts revenue ON revenue.id = pr.revenue_account_id
              WHERE pr.request_uuid = :uuid
              LIMIT 1'
         );
@@ -85,11 +94,9 @@ final class PaymentRequestService
 
             $accounts = new AccountService();
             $heldAccountId = $accounts->ensureAdminHeldAccount($adminId);
-            $incomeAccountId = match ($row['purpose']) {
-                'entry_fee' => $accounts->accountIdByCode('4100'),
-                'clan_contribution' => $accounts->accountIdByCode('4300'),
-                default => $accounts->accountIdByCode('4300'),
-            };
+            $incomeAccountId = !empty($row['revenue_account_id'])
+                ? $accounts->requirePostingAccount((int)$row['revenue_account_id'], ['income'])
+                : $accounts->defaultRevenueAccountId((int)$row['app_id'], (string)$row['purpose']);
 
             $ledger = new LedgerService();
             $transaction = $ledger->postTransaction([
@@ -240,10 +247,13 @@ final class PaymentRequestService
         $stmt = Database::pdo()->prepare(
             'SELECT pr.*, a.slug AS app_slug, a.name AS app_name,
                     admin.display_name AS received_by_display_name,
-                    admin.rsn AS received_by_rsn
+                    admin.rsn AS received_by_rsn,
+                    revenue.code AS revenue_account_code,
+                    revenue.name AS revenue_account_name
              FROM treasury_payment_requests pr
              JOIN treasury_apps a ON a.id = pr.app_id
              LEFT JOIN treasury_admins admin ON admin.id = pr.received_by_admin_id
+             LEFT JOIN treasury_accounts revenue ON revenue.id = pr.revenue_account_id
              WHERE pr.app_id = :app_id AND pr.source_type = :source_type AND pr.source_id = :source_id
              LIMIT 1'
         );
@@ -275,10 +285,13 @@ final class PaymentRequestService
         $stmt = Database::pdo()->prepare(
             'SELECT pr.*, a.slug AS app_slug, a.name AS app_name,
                     admin.display_name AS received_by_display_name,
-                    admin.rsn AS received_by_rsn
+                    admin.rsn AS received_by_rsn,
+                    revenue.code AS revenue_account_code,
+                    revenue.name AS revenue_account_name
              FROM treasury_payment_requests pr
              JOIN treasury_apps a ON a.id = pr.app_id
              LEFT JOIN treasury_admins admin ON admin.id = pr.received_by_admin_id
+             LEFT JOIN treasury_accounts revenue ON revenue.id = pr.revenue_account_id
              WHERE pr.id = :id
              LIMIT 1'
         );
@@ -304,6 +317,11 @@ final class PaymentRequestService
             'amount' => (int)$row['amount'],
             'purpose' => $row['purpose'],
             'description' => $row['description'],
+            'revenue_account' => !empty($row['revenue_account_id']) ? [
+                'id' => (int)$row['revenue_account_id'],
+                'code' => $row['revenue_account_code'] ?? null,
+                'name' => $row['revenue_account_name'] ?? null,
+            ] : null,
             'status' => $row['status'],
             'received_by' => $row['received_by_admin_id'] ? [
                 'admin_id' => (int)$row['received_by_admin_id'],

@@ -283,3 +283,27 @@ Creation forms have been moved to their own pages and are available from the sid
 - Admin reimbursement
 
 No database migration is required.
+
+
+## Chart of Accounts upgrade
+
+This build adds a first-class Chart of Accounts.
+
+New installs already include the required columns in `database/schema.sql` and the default accounts in `database/seed.sql`.
+
+Existing installs must run this migration once after deploying the files:
+
+```bash
+mysql -u USER -p DATABASE < database/migrations/2026_06_26_chart_of_accounts.sql
+```
+
+The Chart of Accounts page lets you create and archive revenue and expense accounts. System accounts remain locked because they power the ledger mechanics.
+
+Default posting accounts added:
+
+- `4110` Bingo Entry Fees
+- `4210` Runes of Power Entry Fees
+- `5110` Bingo Prize Payouts
+- `5210` Runes of Power Prize Payouts
+
+Money-in requests now choose a Revenue account. Money-out requests and manual expenses now choose an Expense account. Existing open requests are assigned sensible defaults by the migration.

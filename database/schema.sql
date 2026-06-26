@@ -109,6 +109,7 @@ CREATE TABLE treasury_payment_requests (
     amount BIGINT UNSIGNED NOT NULL,
     purpose ENUM('entry_fee','clan_contribution','other') NOT NULL,
     description VARCHAR(255) NOT NULL,
+    revenue_account_id BIGINT UNSIGNED NULL,
     status ENUM('pending','received_by_admin','reconciled_to_treasury','cancelled') NOT NULL DEFAULT 'pending',
     received_by_admin_id BIGINT UNSIGNED NULL,
     received_transaction_id BIGINT UNSIGNED NULL,
@@ -118,13 +119,15 @@ CREATE TABLE treasury_payment_requests (
     reconciled_at DATETIME NULL,
     metadata JSON NULL,
     FOREIGN KEY (app_id) REFERENCES treasury_apps(id),
+    FOREIGN KEY (revenue_account_id) REFERENCES treasury_accounts(id),
     FOREIGN KEY (received_by_admin_id) REFERENCES treasury_admins(id),
     FOREIGN KEY (received_transaction_id) REFERENCES treasury_transactions(id),
     FOREIGN KEY (reconciliation_transaction_id) REFERENCES treasury_transactions(id),
     UNIQUE KEY unique_payment_request (app_id, source_type, source_id),
     INDEX idx_treasury_payment_status (status),
     INDEX idx_treasury_payment_player (player_rsn),
-    INDEX idx_treasury_payment_source (app_id, source_type, source_id)
+    INDEX idx_treasury_payment_source (app_id, source_type, source_id),
+    INDEX idx_treasury_payment_revenue_account (revenue_account_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE treasury_payout_requests (
@@ -137,6 +140,7 @@ CREATE TABLE treasury_payout_requests (
     amount BIGINT UNSIGNED NOT NULL,
     payout_type ENUM('prize','expense','admin_reimbursement') NOT NULL,
     description VARCHAR(255) NOT NULL,
+    expense_account_id BIGINT UNSIGNED NULL,
     status ENUM('pending','paid_from_treasury','paid_by_admin','reimbursed','cancelled') NOT NULL DEFAULT 'pending',
     paid_by_admin_id BIGINT UNSIGNED NULL,
     paid_transaction_id BIGINT UNSIGNED NULL,
@@ -146,13 +150,15 @@ CREATE TABLE treasury_payout_requests (
     reimbursed_at DATETIME NULL,
     metadata JSON NULL,
     FOREIGN KEY (app_id) REFERENCES treasury_apps(id),
+    FOREIGN KEY (expense_account_id) REFERENCES treasury_accounts(id),
     FOREIGN KEY (paid_by_admin_id) REFERENCES treasury_admins(id),
     FOREIGN KEY (paid_transaction_id) REFERENCES treasury_transactions(id),
     FOREIGN KEY (reimbursement_transaction_id) REFERENCES treasury_transactions(id),
     UNIQUE KEY unique_payout_request (app_id, source_type, source_id),
     INDEX idx_treasury_payout_status (status),
     INDEX idx_treasury_payout_payee (payee_rsn),
-    INDEX idx_treasury_payout_source (app_id, source_type, source_id)
+    INDEX idx_treasury_payout_source (app_id, source_type, source_id),
+    INDEX idx_treasury_payout_expense_account (expense_account_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE treasury_reconciliations (

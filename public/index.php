@@ -6,6 +6,7 @@ require_once __DIR__ . '/../src/bootstrap.php';
 
 use Treasury\Auth\DiscordOAuth;
 use Treasury\Services\AdminService;
+use Treasury\Services\AccountService;
 use Treasury\Services\AppService;
 use Treasury\Services\BalanceService;
 use Treasury\Services\ManualLedgerService;
@@ -66,6 +67,7 @@ function nav_items(): array
         'payouts' => 'Money out',
         'reconciliation' => 'Bank reconciliation',
         'transactions' => 'Ledger',
+        'chart_accounts' => 'Chart of Accounts',
         'settings' => 'Settings',
     ];
 }
@@ -79,6 +81,7 @@ function page_title(string $page): string
         'new_treasury_expense' => 'New treasury expense',
         'new_admin_paid_expense' => 'New admin-paid expense',
         'new_admin_reimbursement' => 'New admin reimbursement',
+        'chart_accounts' => 'Chart of Accounts',
     ][$page] ?? (nav_items()[$page] ?? ucwords(str_replace('_', ' ', $page)));
 }
 
@@ -91,6 +94,7 @@ function page_description(string $page): string
         'reconciliation' => 'Move admin-held GP into the official treasury with a clear audit trail.',
         'transactions' => 'Review posted ledger entries and reverse mistakes safely.',
         'settings' => 'Manage treasury admins, source apps, and Discord login status.',
+        'chart_accounts' => 'Manage revenue and expense ledger accounts used to categorise GP transactions.',
         'new_payment' => 'Create an expected incoming GP payment for entry fees, contributions, or other money-in workflows.',
         'new_payout' => 'Create an outgoing GP request for prizes, expenses, or reimbursement workflows.',
         'new_opening_balance' => 'Post an opening balance or one-off official treasury adjustment.',
@@ -282,6 +286,21 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 Flash::add('success', 'Source app saved.');
                 redirect_to('settings');
 
+            case 'create_account':
+                (new AccountService())->createPostingAccount($_POST, require_acting_admin());
+                Flash::add('success', 'Ledger account created.');
+                redirect_to('chart_accounts');
+
+            case 'archive_account':
+                (new AccountService())->setActive((int)($_POST['account_id'] ?? 0), false, require_acting_admin());
+                Flash::add('success', 'Ledger account archived.');
+                redirect_to('chart_accounts');
+
+            case 'restore_account':
+                (new AccountService())->setActive((int)($_POST['account_id'] ?? 0), true, require_acting_admin());
+                Flash::add('success', 'Ledger account restored.');
+                redirect_to('chart_accounts');
+
             case 'opening_balance':
                 (new ManualLedgerService())->openingBalance([
                     'admin_id' => require_acting_admin(),
@@ -299,6 +318,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                     'amount' => $_POST['amount'] ?? '',
                     'description' => $_POST['description'] ?? 'Manual treasury expense',
                     'player_rsn' => $_POST['player_rsn'] ?? null,
+                    'expense_account_id' => (int)($_POST['expense_account_id'] ?? 0),
                     'notes' => $_POST['notes'] ?? null,
                     'occurred_at' => (($_POST['occurred_at'] ?? '') ?: 'now'),
                 ]);
@@ -312,6 +332,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                     'amount' => $_POST['amount'] ?? '',
                     'description' => $_POST['description'] ?? 'Admin-paid expense',
                     'player_rsn' => $_POST['player_rsn'] ?? null,
+                    'expense_account_id' => (int)($_POST['expense_account_id'] ?? 0),
                     'notes' => $_POST['notes'] ?? null,
                     'occurred_at' => (($_POST['occurred_at'] ?? '') ?: 'now'),
                 ]);
@@ -345,6 +366,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                     'amount' => GP::parse($_POST['amount'] ?? ''),
                     'purpose' => $purpose,
                     'description' => $_POST['description'] ?? null,
+                    'revenue_account_id' => (int)($_POST['revenue_account_id'] ?? 0),
                     'metadata' => ['created_from' => 'admin_ui'],
                 ]);
                 Flash::add('success', 'Payment request created.');
@@ -383,6 +405,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                     'amount' => GP::parse($_POST['amount'] ?? ''),
                     'payout_type' => $payoutType,
                     'description' => $_POST['description'] ?? null,
+                    'expense_account_id' => (int)($_POST['expense_account_id'] ?? 0),
                     'metadata' => ['created_from' => 'admin_ui'],
                 ]);
                 Flash::add('success', 'Payout request created.');
@@ -469,9 +492,12 @@ if (!$loggedIn && !in_array($page, ['login', 'discord_login', 'discord_callback'
 
 $adminService = new AdminService();
 $appService = new AppService();
+$accountService = new AccountService();
 $query = new TreasuryQueryService();
 $admins = $loggedIn ? $adminService->all(true) : [];
 $apps = $loggedIn ? $appService->all(true) : [];
+$revenueAccounts = $loggedIn ? $accountService->postingAccounts('income') : [];
+$expenseAccounts = $loggedIn ? $accountService->postingAccounts('expense') : [];
 
 ?><!doctype html>
 <html lang="en-AU">
@@ -582,21 +608,23 @@ $apps = $loggedIn ? $appService->all(true) : [];
     <?php elseif ($page === 'payouts'): ?>
         <?php render_payouts($query, $apps, $admins); ?>
     <?php elseif ($page === 'new_payment'): ?>
-        <?php render_new_payment($apps); ?>
+        <?php render_new_payment($apps, $revenueAccounts); ?>
     <?php elseif ($page === 'new_payout'): ?>
-        <?php render_new_payout($apps); ?>
+        <?php render_new_payout($apps, $expenseAccounts); ?>
     <?php elseif ($page === 'new_opening_balance'): ?>
         <?php render_new_opening_balance(); ?>
     <?php elseif ($page === 'new_treasury_expense'): ?>
-        <?php render_new_treasury_expense(); ?>
+        <?php render_new_treasury_expense($expenseAccounts); ?>
     <?php elseif ($page === 'new_admin_paid_expense'): ?>
-        <?php render_new_admin_paid_expense(); ?>
+        <?php render_new_admin_paid_expense($admins, $expenseAccounts); ?>
     <?php elseif ($page === 'new_admin_reimbursement'): ?>
         <?php render_new_admin_reimbursement(); ?>
     <?php elseif ($page === 'reconciliation'): ?>
         <?php render_reconciliation($query, $admins); ?>
     <?php elseif ($page === 'transactions'): ?>
         <?php render_transactions($query, $apps); ?>
+    <?php elseif ($page === 'chart_accounts'): ?>
+        <?php render_chart_accounts((new AccountService())->all(true), $apps); ?>
     <?php elseif ($page === 'settings'): ?>
         <?php render_settings($admins, $apps); ?>
     <?php else: ?>
@@ -777,7 +805,7 @@ function render_payments(TreasuryQueryService $query, array $apps): void
         <div class="filter-panel"><?php render_filters('payments', $apps, $statuses); ?></div>
         <div class="table-wrap">
             <table>
-                <thead><tr><th>Created</th><th>Source</th><th>Player</th><th>Description</th><th class="right">Amount</th><th>Status</th><th>Received by</th><th>Action</th></tr></thead>
+                <thead><tr><th>Created</th><th>Source</th><th>Player</th><th>Description</th><th>Revenue account</th><th class="right">Amount</th><th>Status</th><th>Received by</th><th>Action</th></tr></thead>
                 <tbody>
                 <?php foreach ($rows as $row): ?>
                     <tr>
@@ -785,6 +813,7 @@ function render_payments(TreasuryQueryService $query, array $apps): void
                         <td><strong><?= h($row['app_name']) ?></strong><small><?= h($row['source_type']) ?> / <?= h($row['source_id']) ?></small></td>
                         <td><?= h($row['player_rsn']) ?></td>
                         <td><?= h($row['description']) ?></td>
+                        <td><code><?= h($row['revenue_account_code'] ?? '—') ?></code><small><?= h($row['revenue_account_name'] ?? '') ?></small></td>
                         <td class="right amount"><?= h(GP::format($row['amount'])) ?></td>
                         <td><?= badge($row['status']) ?></td>
                         <td><?= h($row['received_by_display_name'] ?: $row['received_by_rsn'] ?: '—') ?></td>
@@ -810,7 +839,7 @@ function render_payments(TreasuryQueryService $query, array $apps): void
                         </td>
                     </tr>
                 <?php endforeach; ?>
-                <?php if (!$rows): ?><tr><td colspan="8" class="empty">No payment requests found.</td></tr><?php endif; ?>
+                <?php if (!$rows): ?><tr><td colspan="9" class="empty">No payment requests found.</td></tr><?php endif; ?>
                 </tbody>
             </table>
         </div>
@@ -847,7 +876,7 @@ function render_payouts(TreasuryQueryService $query, array $apps, array $admins)
         <div class="filter-panel"><?php render_filters('payouts', $apps, $statuses); ?></div>
         <div class="table-wrap">
             <table>
-                <thead><tr><th>Created</th><th>Source</th><th>Payee</th><th>Description</th><th class="right">Amount</th><th>Status</th><th>Admin</th><th>Actions</th></tr></thead>
+                <thead><tr><th>Created</th><th>Source</th><th>Payee</th><th>Description</th><th>Expense account</th><th class="right">Amount</th><th>Status</th><th>Admin</th><th>Actions</th></tr></thead>
                 <tbody>
                 <?php foreach ($rows as $row): ?>
                     <tr>
@@ -855,6 +884,7 @@ function render_payouts(TreasuryQueryService $query, array $apps, array $admins)
                         <td><strong><?= h($row['app_name']) ?></strong><small><?= h($row['source_type']) ?> / <?= h($row['source_id']) ?></small></td>
                         <td><?= h($row['payee_rsn']) ?></td>
                         <td><?= h($row['description']) ?></td>
+                        <td><code><?= h($row['expense_account_code'] ?? '—') ?></code><small><?= h($row['expense_account_name'] ?? '') ?></small></td>
                         <td class="right amount"><?= h(GP::format($row['amount'])) ?></td>
                         <td><?= badge($row['status']) ?></td>
                         <td><?= h($row['paid_by_display_name'] ?: $row['paid_by_rsn'] ?: '—') ?></td>
@@ -871,7 +901,7 @@ function render_payouts(TreasuryQueryService $query, array $apps, array $admins)
                         </td>
                     </tr>
                 <?php endforeach; ?>
-                <?php if (!$rows): ?><tr><td colspan="8" class="empty">No payout requests found.</td></tr><?php endif; ?>
+                <?php if (!$rows): ?><tr><td colspan="9" class="empty">No payout requests found.</td></tr><?php endif; ?>
                 </tbody>
             </table>
         </div>
@@ -879,7 +909,7 @@ function render_payouts(TreasuryQueryService $query, array $apps, array $admins)
     <?php
 }
 
-function render_new_payment(array $apps): void
+function render_new_payment(array $apps, array $revenueAccounts): void
 {
     ?>
     <section class="card form-page-card">
@@ -899,6 +929,7 @@ function render_new_payment(array $apps): void
             </label>
             <label>Player RSN <input name="player_rsn" required></label>
             <label>Amount <input name="amount" placeholder="10m" required></label>
+            <label>Revenue account <?= account_select($revenueAccounts, 'revenue_account_id') ?></label>
             <label class="wide">Description <input name="description" placeholder="Bingo entry fee - Game 1"></label>
             <details class="wide request-source-details">
                 <summary>Source reference</summary>
@@ -913,7 +944,7 @@ function render_new_payment(array $apps): void
     <?php
 }
 
-function render_new_payout(array $apps): void
+function render_new_payout(array $apps, array $expenseAccounts): void
 {
     ?>
     <section class="card form-page-card">
@@ -933,6 +964,7 @@ function render_new_payout(array $apps): void
             </label>
             <label>Payee RSN <input name="payee_rsn" required></label>
             <label>Amount <input name="amount" placeholder="50m" required></label>
+            <label>Expense account <?= account_select($expenseAccounts, 'expense_account_id') ?></label>
             <label class="wide">Description <input name="description" placeholder="Bingo row prize - Game 1"></label>
             <details class="wide request-source-details">
                 <summary>Source reference</summary>
@@ -965,7 +997,7 @@ function render_new_opening_balance(): void
     <?php
 }
 
-function render_new_treasury_expense(): void
+function render_new_treasury_expense(array $expenseAccounts): void
 {
     ?>
     <section class="card form-page-card">
@@ -975,6 +1007,7 @@ function render_new_treasury_expense(): void
             <input type="hidden" name="action" value="expense_from_treasury">
             <label>Amount <input name="amount" placeholder="25m" required></label>
             <label>Related RSN <input name="player_rsn" placeholder="Optional"></label>
+            <label>Expense account <?= account_select($expenseAccounts, 'expense_account_id') ?></label>
             <label class="wide">Description <input name="description" placeholder="Event supplies / prize top-up" required></label>
             <label class="wide">Notes <textarea name="notes" placeholder="Optional notes"></textarea></label>
             <div class="form-actions"><button class="button primary" type="submit">Post treasury expense</button></div>
@@ -983,7 +1016,7 @@ function render_new_treasury_expense(): void
     <?php
 }
 
-function render_new_admin_paid_expense(): void
+function render_new_admin_paid_expense(array $admins, array $expenseAccounts): void
 {
     ?>
     <section class="card form-page-card">
@@ -993,6 +1026,7 @@ function render_new_admin_paid_expense(): void
             <input type="hidden" name="action" value="admin_paid_expense">
             <label>Paid by admin <?= admin_select('paid_by_admin_id') ?></label>
             <label>Amount <input name="amount" placeholder="10m" required></label>
+            <label>Expense account <?= account_select($expenseAccounts, 'expense_account_id') ?></label>
             <label>Related RSN <input name="player_rsn" placeholder="Optional"></label>
             <label>Occurred at <input name="occurred_at" placeholder="now"></label>
             <label class="wide">Description <input name="description" placeholder="What was paid?" required></label>
@@ -1150,6 +1184,100 @@ function render_transactions(TreasuryQueryService $query, array $apps): void
     <?php
 }
 
+function render_chart_accounts(array $accounts, array $apps): void
+{
+    $groups = [
+        'asset' => [],
+        'liability' => [],
+        'equity' => [],
+        'income' => [],
+        'expense' => [],
+        'clearing' => [],
+    ];
+    foreach ($accounts as $account) {
+        $groups[$account['account_type']][] = $account;
+    }
+    ?>
+    <section class="grid two">
+        <div class="card">
+            <div class="section-header">
+                <div>
+                    <h2>Create posting account</h2>
+                    <p class="muted">Create revenue and expense accounts for categorising Money In, Money Out, and manual expenses.</p>
+                </div>
+            </div>
+            <form method="post" class="grid-form">
+                <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                <input type="hidden" name="action" value="create_account">
+                <label>Type
+                    <select name="account_type" required>
+                        <option value="income">Revenue / income</option>
+                        <option value="expense">Expense</option>
+                    </select>
+                </label>
+                <label>Account code <input name="code" placeholder="4310" required></label>
+                <label class="wide">Account name <input name="name" placeholder="Giveaway Contributions" required></label>
+                <label class="wide">Default source app <?= app_select($apps, 'app_id', 0, true) ?></label>
+                <div class="form-actions"><button class="button primary" type="submit">Create account</button></div>
+            </form>
+        </div>
+
+        <div class="notice-card">
+            <h2>How these accounts are used</h2>
+            <p>Money-in requests credit a revenue account when GP is received by an admin. Money-out requests and manual expenses debit an expense account when GP is paid or owed.</p>
+            <p class="muted">System accounts such as Official Treasury, Admin Held Funds, and Admin Reimbursements Payable remain locked because they control the ledger mechanics.</p>
+        </div>
+    </section>
+
+    <?php foreach ($groups as $type => $rows): ?>
+        <?php if (!$rows) { continue; } ?>
+        <section class="card">
+            <div class="section-header">
+                <h2><?= h(ucwords(str_replace('_', ' ', $type))) ?> accounts</h2>
+                <span class="pill"><?= count($rows) ?> accounts</span>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Code</th><th>Name</th><th>Parent</th><th>Source app</th><th>Normal balance</th><th>Used</th><th>Status</th><th>Actions</th></tr></thead>
+                    <tbody>
+                    <?php foreach ($rows as $account): ?>
+                        <tr>
+                            <td><code><?= h($account['code']) ?></code></td>
+                            <td><strong><?= h($account['name']) ?></strong><?= (int)$account['is_system'] === 1 ? '<small>System account</small>' : '' ?></td>
+                            <td><?= h($account['parent_code'] ?? '—') ?><small><?= h($account['parent_name'] ?? '') ?></small></td>
+                            <td><?= h($account['app_name'] ?? 'Any app') ?></td>
+                            <td><?= h($account['normal_balance']) ?></td>
+                            <td><?= (int)($account['ledger_entry_count'] ?? 0) ?> ledger lines</td>
+                            <td><?= (int)$account['is_active'] === 1 ? badge('active') : badge('archived') ?></td>
+                            <td class="actions-cell">
+                                <?php if ((int)$account['is_system'] === 1): ?>
+                                    <span class="muted">Locked</span>
+                                <?php elseif ((int)$account['is_active'] === 1): ?>
+                                    <form method="post" class="row-action" onsubmit="return confirm('Archive this account? Existing ledger history will remain.');">
+                                        <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                        <input type="hidden" name="action" value="archive_account">
+                                        <input type="hidden" name="account_id" value="<?= (int)$account['id'] ?>">
+                                        <button class="button small" type="submit">Archive</button>
+                                    </form>
+                                <?php else: ?>
+                                    <form method="post" class="row-action">
+                                        <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                        <input type="hidden" name="action" value="restore_account">
+                                        <input type="hidden" name="account_id" value="<?= (int)$account['id'] ?>">
+                                        <button class="button small primary" type="submit">Restore</button>
+                                    </form>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    <?php endforeach; ?>
+    <?php
+}
+
 function render_settings(array $admins, array $apps): void
 {
     ?>
@@ -1217,6 +1345,22 @@ function render_filters(string $page, array $apps, array $statuses): void
         <button class="button" type="submit">Filter</button>
     </form>
     <?php
+}
+
+function account_select(array $accounts, string $name, int $selected = 0, bool $includeBlank = false): string
+{
+    ob_start();
+    ?>
+    <select name="<?= h($name) ?>" <?= $includeBlank ? '' : 'required' ?>>
+        <?php if ($includeBlank): ?><option value="">Use default account</option><?php endif; ?>
+        <?php foreach ($accounts as $account): ?>
+            <option value="<?= (int)$account['id'] ?>" <?= $selected === (int)$account['id'] ? 'selected' : '' ?>>
+                <?= h($account['code'] . ' · ' . $account['name'] . (!empty($account['app_name']) ? ' (' . $account['app_name'] . ')' : '')) ?>
+            </option>
+        <?php endforeach; ?>
+    </select>
+    <?php
+    return ob_get_clean();
 }
 
 function app_select(array $apps, string $name, int $selected = 0, bool $includeAll = false): string

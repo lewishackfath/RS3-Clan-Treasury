@@ -54,6 +54,10 @@ final class ManualLedgerService
         }
 
         $accounts = new AccountService();
+        $expenseAccountId = !empty($data['expense_account_id'])
+            ? $accounts->requirePostingAccount((int)$data['expense_account_id'], ['expense'])
+            : $accounts->accountIdByCode('6000');
+
         return (new LedgerService())->postTransaction([
             'app_id' => null,
             'source_type' => 'manual_expense',
@@ -63,10 +67,10 @@ final class ManualLedgerService
             'notes' => $data['notes'] ?? null,
             'occurred_at' => $data['occurred_at'] ?? 'now',
             'posted_by_admin_id' => $adminId,
-            'metadata' => ['manual_entry_type' => 'expense_from_treasury'],
+            'metadata' => ['manual_entry_type' => 'expense_from_treasury', 'expense_account_id' => $expenseAccountId],
         ], [
             [
-                'account_id' => $accounts->accountIdByCode('6000'),
+                'account_id' => $expenseAccountId,
                 'direction' => 'debit',
                 'amount' => $amount,
                 'admin_id' => $adminId,
@@ -94,6 +98,10 @@ final class ManualLedgerService
         }
 
         $accounts = new AccountService();
+        $expenseAccountId = !empty($data['expense_account_id'])
+            ? $accounts->requirePostingAccount((int)$data['expense_account_id'], ['expense'])
+            : $accounts->accountIdByCode('6000');
+
         return (new LedgerService())->postTransaction([
             'app_id' => null,
             'source_type' => 'manual_admin_paid_expense',
@@ -103,10 +111,10 @@ final class ManualLedgerService
             'notes' => $data['notes'] ?? null,
             'occurred_at' => $data['occurred_at'] ?? 'now',
             'posted_by_admin_id' => $postedByAdminId,
-            'metadata' => ['manual_entry_type' => 'admin_paid_expense', 'paid_by_admin_id' => $paidByAdminId],
+            'metadata' => ['manual_entry_type' => 'admin_paid_expense', 'paid_by_admin_id' => $paidByAdminId, 'expense_account_id' => $expenseAccountId],
         ], [
             [
-                'account_id' => $accounts->accountIdByCode('6000'),
+                'account_id' => $expenseAccountId,
                 'direction' => 'debit',
                 'amount' => $amount,
                 'admin_id' => $paidByAdminId,
