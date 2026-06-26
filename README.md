@@ -263,3 +263,8 @@ This package includes a cleaner finance-app style admin layout:
 - Manual adjustments are still available, but they are grouped as quick manual actions rather than being the main dashboard focus.
 
 No database migration is required for the UI update.
+
+
+## RuneScape-themed Xero-style palette
+
+This build keeps the cleaner finance-style layout, but swaps the default blue palette for warm RuneScape-inspired browns, parchment tones, and gold accents. No database migration is required.
