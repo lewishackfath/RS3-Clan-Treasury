@@ -60,7 +60,7 @@ ADMIN_UI_PASSWORD=replace_with_a_long_private_password
 6. Create your first treasury user from **Users**, or use the CLI helper:
 
 ```bash
-php bin/create-admin.php "Lewis" "Lewis" "123456789012345678"
+php bin/create-admin.php "First Name" "RuneScape Name" "123456789012345678"
 ```
 
 7. Select an **Acting admin** in the top-right of the UI before posting treasury actions.
@@ -113,7 +113,7 @@ DISCORD_ADMIN_ROLE_IDS=111111111111111111,222222222222222222
 5. Make sure each treasury user row has the correct Discord user ID. You can create users through **Users** or with:
 
 ```bash
-php bin/create-admin.php "Lewis" "Lewis" "123456789012345678"
+php bin/create-admin.php "First Name" "RuneScape Name" "123456789012345678"
 ```
 
 When a linked admin signs in with Discord, the app automatically selects that person as the acting admin. Set this if you want to prevent switching to another acting admin:
@@ -351,3 +351,8 @@ Treasury users are managed from the dedicated **Users** page instead of Settings
 When a current RSN is changed, the previous RSN is retained in `treasury_admin_rsn_history` so older audit and ledger records remain understandable. Users with no treasury activity can be deleted. Users with activity should be archived so the audit trail remains intact.
 
 The database bootstrap creates and keeps the RSN history table in sync automatically. No sample users are created.
+
+
+## First Discord sign-in RSN setup
+
+When a Discord-authorised user signs in for the first time and their Discord user ID is not yet linked to a treasury user, the app now forces them through a short RSN setup page before they can access the treasury. This creates their treasury user, links their Discord user ID, records their current RSN, and sets them as the acting admin.

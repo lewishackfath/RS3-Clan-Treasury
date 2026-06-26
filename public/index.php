@@ -84,6 +84,7 @@ function page_title(string $page): string
         'new_admin_reimbursement' => 'New admin reimbursement',
         'chart_accounts' => 'Chart of Accounts',
         'users' => 'Users',
+        'setup_rsn' => 'Set your RSN',
     ][$page] ?? (nav_items()[$page] ?? ucwords(str_replace('_', ' ', $page)));
 }
 
@@ -98,6 +99,7 @@ function page_description(string $page): string
         'settings' => 'Manage source apps and Discord login status.',
         'chart_accounts' => 'Manage revenue and expense ledger accounts used to categorise GP transactions.',
         'users' => 'Manage treasury users, Discord links, active status, and RSN changes.',
+        'setup_rsn' => 'Link your Discord login to a treasury user before continuing.',
         'new_payment' => 'Create an expected incoming GP payment for entry fees, contributions, or other money-in workflows.',
         'new_payout' => 'Create an outgoing GP request for prizes, expenses, or reimbursement workflows.',
         'new_opening_balance' => 'Post an opening balance or one-off official treasury adjustment.',
@@ -163,6 +165,20 @@ function require_acting_admin(): int
         throw new RuntimeException('Select an acting treasury admin before posting treasury actions.');
     }
     return $adminId;
+}
+
+function discord_profile_needs_rsn_setup(): bool
+{
+    if (!AdminSession::isLoggedIn() || AdminSession::authMethod() !== 'discord') {
+        return false;
+    }
+
+    $discordUserId = AdminSession::discordUserId();
+    if (!$discordUserId) {
+        return false;
+    }
+
+    return (new AdminService())->findByDiscordUserId($discordUserId) === null;
 }
 
 function selected_total_for_reconciliation(int $adminId, array $uuids): int
@@ -261,6 +277,35 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 
         AdminSession::requireLogin();
         Csrf::validate();
+
+        if ($action === 'complete_discord_rsn_setup') {
+            if (AdminSession::authMethod() !== 'discord' || !AdminSession::discordUserId()) {
+                throw new RuntimeException('This setup page is only available after Discord sign-in.');
+            }
+
+            $adminService = new AdminService();
+            $existing = $adminService->findByDiscordUserId(AdminSession::discordUserId());
+            if ($existing) {
+                AdminSession::setActingAdminId((int)$existing['id']);
+                Flash::add('success', 'Your Discord login is already linked.');
+                redirect_to('dashboard');
+            }
+
+            $displayName = trim((string)($_POST['display_name'] ?? ''));
+            if ($displayName === '') {
+                $displayName = AdminSession::displayName();
+            }
+
+            $admin = $adminService->create([
+                'display_name' => $displayName,
+                'rsn' => $_POST['rsn'] ?? '',
+                'discord_user_id' => AdminSession::discordUserId(),
+            ], null);
+
+            AdminSession::setActingAdminId((int)$admin['id']);
+            Flash::add('success', 'Your RSN has been linked to your Discord login.');
+            redirect_to('dashboard');
+        }
 
         switch ($action) {
             case 'set_acting_admin':
@@ -512,6 +557,11 @@ if (!$loggedIn && !in_array($page, ['login', 'discord_login', 'discord_callback'
     $page = 'login';
 }
 
+$needsRsnSetup = $loggedIn && discord_profile_needs_rsn_setup();
+if ($needsRsnSetup && !in_array($page, ['setup_rsn'], true)) {
+    $page = 'setup_rsn';
+}
+
 $adminService = new AdminService();
 $appService = new AppService();
 $accountService = new AccountService();
@@ -531,7 +581,7 @@ $expenseAccounts = $loggedIn ? $accountService->postingAccounts('expense') : [];
     <link rel="stylesheet" href="assets/app.css">
 </head>
 <body>
-<?php if ($loggedIn): ?>
+<?php if ($loggedIn && !$needsRsnSetup): ?>
     <aside class="sidebar">
         <div class="brand">
             <span class="brand-mark">◇</span>
@@ -559,8 +609,8 @@ $expenseAccounts = $loggedIn ? $accountService->postingAccounts('expense') : [];
     </aside>
 <?php endif; ?>
 
-<main class="<?= $loggedIn ? 'app-shell' : 'login-shell' ?>">
-    <?php if ($loggedIn): ?>
+<main class="<?= ($loggedIn && !$needsRsnSetup) ? 'app-shell' : 'login-shell' ?>">
+    <?php if ($loggedIn && !$needsRsnSetup): ?>
         <header class="topbar">
             <div>
                 <h1><?= h(page_title($page)) ?></h1>
@@ -624,6 +674,8 @@ $expenseAccounts = $loggedIn ? $accountService->postingAccounts('expense') : [];
 
     <?php if ($page === 'login'): ?>
         <?php render_login($appName); ?>
+    <?php elseif ($page === 'setup_rsn'): ?>
+        <?php render_setup_rsn($appName); ?>
     <?php elseif ($page === 'dashboard'): ?>
         <?php render_dashboard($query, $admins); ?>
     <?php elseif ($page === 'payments'): ?>
@@ -659,6 +711,35 @@ $expenseAccounts = $loggedIn ? $accountService->postingAccounts('expense') : [];
 </body>
 </html>
 <?php
+
+function render_setup_rsn(string $appName): void
+{
+    $discordName = AdminSession::displayName();
+    $discordId = AdminSession::discordUserId() ?: '';
+    ?>
+    <section class="login-card setup-card">
+        <div class="brand large"><span class="brand-mark">◇</span><div><strong><?= h($appName) ?></strong><small>RS3 GP Accounting</small></div></div>
+        <h2>Set your RuneScape name</h2>
+        <p class="muted">Your Discord sign-in is authorised, but it is not linked to a treasury user yet. Set your current RSN before using the treasury.</p>
+        <div class="notice-inline">
+            <strong><?= h($discordName) ?></strong>
+            <?php if ($discordId !== ''): ?><small>Discord ID: <?= h($discordId) ?></small><?php endif; ?>
+        </div>
+        <form method="post" class="stacked-form">
+            <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+            <input type="hidden" name="action" value="complete_discord_rsn_setup">
+            <label>Display name <input name="display_name" placeholder="First Name" autocomplete="name"></label>
+            <label>Current RSN <input name="rsn" required placeholder="RuneScape name" autofocus></label>
+            <button class="button primary" type="submit">Save RSN and continue</button>
+        </form>
+        <form method="post" class="fallback-login">
+            <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+            <input type="hidden" name="action" value="logout">
+            <button class="button ghost" type="submit">Log out</button>
+        </form>
+    </section>
+    <?php
+}
 
 function render_login(string $appName): void
 {
@@ -1339,7 +1420,7 @@ function render_users(array $admins): void
             <form method="post" class="grid-form">
                 <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
                 <input type="hidden" name="action" value="create_admin">
-                <label>Display name <input name="display_name" placeholder="Lewis"></label>
+                <label>Display name <input name="display_name" placeholder="First Name"></label>
                 <label>Current RSN <input name="rsn" required placeholder="RuneScape name"></label>
                 <label class="wide">Discord user ID <input name="discord_user_id" placeholder="Required for Discord auto-link"></label>
                 <div class="form-actions"><button class="button primary" type="submit">Create user</button></div>
