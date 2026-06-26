@@ -10,9 +10,9 @@ The application can be used manually through the admin UI before any external ap
 - Discord OAuth admin login with linked treasury admins, owner IDs, and optional role checks.
 - Dashboard showing official treasury, admin-held GP, reimbursements owed, and total clan GP.
 - Manual opening balance / treasury adjustment flow.
-- Payment request grid for entry fees and clan contributions.
-- Payout request grid for prizes, expenses, and reimbursements.
-- Admin-held reconciliation into the official treasury.
+- Payment request grid for entry fees and clan contributions, including safe cancellation for pending requests.
+- Payout request grid for prizes, expenses, and reimbursements, including safe cancellation for pending requests.
+- Admin-held reconciliation into the official treasury, including selectable received payments and reconciliation history.
 - Manual expenses from the official treasury.
 - Manual admin-paid expenses and reimbursements.
 - Ledger transaction history with debit/credit lines.
@@ -130,6 +130,27 @@ When this is enabled, the header no longer shows the acting-admin dropdown. It s
 6. Use **Reconciliation** when that admin transfers the GP into the official treasury.
 7. Use **Payouts** for prizes and payment obligations.
 8. Use **Ledger** to review the immutable debit/credit history.
+
+
+
+## Reconciliation workflow
+
+The reconciliation page is now payment-specific:
+
+1. Filter to the admin who physically holds the GP.
+2. Review the received-but-unreconciled payments for that admin.
+3. Select the payments that were actually moved into the official treasury.
+4. Post the reconciliation.
+
+The app totals the selected payment requests server-side and posts one balanced reconciliation transaction. It then marks those payment requests as `reconciled_to_treasury` and links them back to the reconciliation transaction.
+
+The same page also shows reconciliation history, including the payment requests included in each completed reconciliation.
+
+## Cancelling requests
+
+Pending payment and payout requests can be cancelled from their grids. This is intended for mistakes before GP has moved.
+
+Once a payment has been received or a payout has been paid, it should not be cancelled directly. Use a ledger correction/reversal workflow instead.
 
 ## Accounting model
 

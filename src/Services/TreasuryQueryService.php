@@ -123,6 +123,88 @@ final class TreasuryQueryService
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
+
+
+    public function reconciliations(array $filters = [], int $limit = 100): array
+    {
+        $where = [];
+        $params = [];
+
+        if (!empty($filters['admin_id'])) {
+            $where[] = 'r.from_admin_id = :admin_id';
+            $params['admin_id'] = (int)$filters['admin_id'];
+        }
+        if (!empty($filters['status'])) {
+            $where[] = 'r.status = :status';
+            $params['status'] = $filters['status'];
+        }
+
+        $sql = 'SELECT r.*, t.transaction_uuid,
+                       from_admin.display_name AS from_admin_display_name, from_admin.rsn AS from_admin_rsn,
+                       created_admin.display_name AS created_by_display_name, created_admin.rsn AS created_by_rsn,
+                       completed_admin.display_name AS completed_by_display_name, completed_admin.rsn AS completed_by_rsn,
+                       COUNT(pr.id) AS linked_payment_count
+                FROM treasury_reconciliations r
+                LEFT JOIN treasury_transactions t ON t.id = r.transaction_id
+                JOIN treasury_admins from_admin ON from_admin.id = r.from_admin_id
+                LEFT JOIN treasury_admins created_admin ON created_admin.id = r.created_by_admin_id
+                LEFT JOIN treasury_admins completed_admin ON completed_admin.id = r.completed_by_admin_id
+                LEFT JOIN treasury_payment_requests pr ON pr.reconciliation_transaction_id = r.transaction_id';
+        if ($where) {
+            $sql .= ' WHERE ' . implode(' AND ', $where);
+        }
+        $sql .= ' GROUP BY r.id, t.transaction_uuid, from_admin.display_name, from_admin.rsn, created_admin.display_name, created_admin.rsn, completed_admin.display_name, completed_admin.rsn
+                  ORDER BY COALESCE(r.completed_at, r.created_at) DESC, r.id DESC
+                  LIMIT ' . max(1, min(500, $limit));
+
+        $stmt = Database::pdo()->prepare($sql);
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if (!$rows) {
+            return [];
+        }
+
+        $transactionIds = [];
+        foreach ($rows as $row) {
+            if (!empty($row['transaction_id'])) {
+                $transactionIds[] = (int)$row['transaction_id'];
+            }
+        }
+        $paymentsByTransaction = $this->paymentRequestsByReconciliationTransaction($transactionIds);
+        foreach ($rows as &$row) {
+            $row['linked_payments'] = $paymentsByTransaction[(int)($row['transaction_id'] ?? 0)] ?? [];
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    public function paymentRequestsByReconciliationTransaction(array $transactionIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $transactionIds))));
+        if (!$ids) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = Database::pdo()->prepare(
+            'SELECT pr.*, a.name AS app_name, a.slug AS app_slug,
+                    admin.display_name AS received_by_display_name, admin.rsn AS received_by_rsn
+             FROM treasury_payment_requests pr
+             JOIN treasury_apps a ON a.id = pr.app_id
+             LEFT JOIN treasury_admins admin ON admin.id = pr.received_by_admin_id
+             WHERE pr.reconciliation_transaction_id IN (' . $placeholders . ')
+             ORDER BY pr.received_at ASC, pr.id ASC'
+        );
+        $stmt->execute($ids);
+
+        $grouped = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $grouped[(int)$row['reconciliation_transaction_id']][] = $row;
+        }
+        return $grouped;
+    }
+
     public function transactions(array $filters = [], int $limit = 100): array
     {
         $where = [];

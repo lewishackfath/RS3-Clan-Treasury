@@ -273,6 +273,15 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 Flash::add('success', 'Payment marked as received by admin.');
                 redirect_to('payments');
 
+            case 'cancel_payment_request':
+                (new PaymentRequestService())->cancel(
+                    (string)($_POST['request_uuid'] ?? ''),
+                    require_acting_admin(),
+                    $_POST['notes'] ?? null
+                );
+                Flash::add('success', 'Pending payment request cancelled.');
+                redirect_to('payments');
+
             case 'create_payout_request':
                 $appId = (int)($_POST['app_id'] ?? 0);
                 $payoutType = (string)($_POST['payout_type'] ?? 'prize');
@@ -318,6 +327,15 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                     'notes' => $_POST['notes'] ?? null,
                 ]);
                 Flash::add('success', 'Payout reimbursement posted.');
+                redirect_to('payouts');
+
+            case 'cancel_payout_request':
+                (new PayoutRequestService())->cancel(
+                    (string)($_POST['request_uuid'] ?? ''),
+                    require_acting_admin(),
+                    $_POST['notes'] ?? null
+                );
+                Flash::add('success', 'Pending payout request cancelled.');
                 redirect_to('payouts');
 
             case 'reconcile_payments':
@@ -669,13 +687,19 @@ function render_payments(TreasuryQueryService $query, array $apps): void
                         <td class="right amount"><?= h(GP::format($row['amount'])) ?></td>
                         <td><?= badge($row['status']) ?></td>
                         <td><?= h($row['received_by_display_name'] ?: $row['received_by_rsn'] ?: '—') ?></td>
-                        <td>
+                        <td class="actions-cell">
                             <?php if ($row['status'] === 'pending'): ?>
                                 <form method="post" class="row-action">
                                     <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
                                     <input type="hidden" name="action" value="receive_payment_request">
                                     <input type="hidden" name="request_uuid" value="<?= h($row['request_uuid']) ?>">
                                     <button class="button small" type="submit">Mark received</button>
+                                </form>
+                                <form method="post" class="row-action" onsubmit="return confirm('Cancel this pending payment request?');">
+                                    <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                    <input type="hidden" name="action" value="cancel_payment_request">
+                                    <input type="hidden" name="request_uuid" value="<?= h($row['request_uuid']) ?>">
+                                    <button class="button small danger" type="submit">Cancel</button>
                                 </form>
                             <?php else: ?>
                                 <span class="muted">—</span>
@@ -738,6 +762,7 @@ function render_payouts(TreasuryQueryService $query, array $apps, array $admins)
                             <?php if ($row['status'] === 'pending'): ?>
                                 <form method="post" class="row-action"><input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>"><input type="hidden" name="action" value="payout_from_treasury"><input type="hidden" name="request_uuid" value="<?= h($row['request_uuid']) ?>"><button class="button small" type="submit">Paid from treasury</button></form>
                                 <form method="post" class="row-action"><input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>"><input type="hidden" name="action" value="payout_by_admin"><input type="hidden" name="request_uuid" value="<?= h($row['request_uuid']) ?>"><button class="button small ghost" type="submit">Paid by admin</button></form>
+                                <form method="post" class="row-action" onsubmit="return confirm('Cancel this pending payout request?');"><input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>"><input type="hidden" name="action" value="cancel_payout_request"><input type="hidden" name="request_uuid" value="<?= h($row['request_uuid']) ?>"><button class="button small danger" type="submit">Cancel</button></form>
                             <?php elseif ($row['status'] === 'paid_by_admin'): ?>
                                 <form method="post" class="row-action"><input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>"><input type="hidden" name="action" value="reimburse_payout"><input type="hidden" name="request_uuid" value="<?= h($row['request_uuid']) ?>"><button class="button small" type="submit">Reimburse</button></form>
                             <?php else: ?>
@@ -757,7 +782,9 @@ function render_payouts(TreasuryQueryService $query, array $apps, array $admins)
 function render_reconciliation(TreasuryQueryService $query, array $admins): void
 {
     $selectedAdminId = (int)($_GET['admin_id'] ?? AdminSession::actingAdminId() ?? ($admins[0]['id'] ?? 0));
-    $rows = $query->unreconciledPaymentsByAdmin($selectedAdminId > 0 ? $selectedAdminId : null);
+    $adminFilter = $selectedAdminId > 0 ? $selectedAdminId : null;
+    $rows = $query->unreconciledPaymentsByAdmin($adminFilter);
+    $history = $query->reconciliations($adminFilter ? ['admin_id' => $adminFilter] : [], 50);
     $total = array_sum(array_map(fn($row) => (int)$row['amount'], $rows));
     ?>
     <section class="card">
@@ -800,6 +827,52 @@ function render_reconciliation(TreasuryQueryService $query, array $admins): void
                 <label class="full-width">Notes <textarea name="notes" placeholder="Optional reconciliation note"></textarea></label>
                 <div class="form-actions"><button class="button primary" type="submit">Reconcile selected payments</button></div>
             </form>
+        <?php endif; ?>
+    </section>
+
+    <section class="card">
+        <div class="section-header">
+            <h2>Reconciliation history</h2>
+            <span class="pill"><?= count($history) ?> recent</span>
+        </div>
+        <?php if (!$history): ?>
+            <p class="empty">No completed reconciliations found for this filter.</p>
+        <?php else: ?>
+            <div class="transaction-list">
+                <?php foreach ($history as $recon): ?>
+                    <details class="transaction-card">
+                        <summary>
+                            <span>
+                                <strong><?= h($recon['from_admin_display_name'] ?: $recon['from_admin_rsn']) ?> reconciled <?= h(GP::format($recon['amount'])) ?></strong>
+                                <small><?= h(local_datetime($recon['completed_at'] ?: $recon['created_at'])) ?> · <?= h($recon['linked_payment_count']) ?> linked payment<?= (int)$recon['linked_payment_count'] === 1 ? '' : 's' ?></small>
+                            </span>
+                            <span><?= badge($recon['status']) ?></span>
+                        </summary>
+                        <div class="ledger-lines">
+                            <?php if (!empty($recon['notes'])): ?><p class="muted"><?= h($recon['notes']) ?></p><?php endif; ?>
+                            <?php if (!empty($recon['transaction_uuid'])): ?><p class="muted">Ledger transaction: <code><?= h($recon['transaction_uuid']) ?></code></p><?php endif; ?>
+                            <?php if (empty($recon['linked_payments'])): ?>
+                                <p class="muted">No linked payment requests were recorded for this reconciliation.</p>
+                            <?php else: ?>
+                                <table>
+                                    <thead><tr><th>Received</th><th>Source</th><th>Player</th><th>Description</th><th class="right">Amount</th></tr></thead>
+                                    <tbody>
+                                    <?php foreach ($recon['linked_payments'] as $payment): ?>
+                                        <tr>
+                                            <td><?= h(local_datetime($payment['received_at'])) ?></td>
+                                            <td><strong><?= h($payment['app_name']) ?></strong><small><?= h($payment['source_type']) ?> / <?= h($payment['source_id']) ?></small></td>
+                                            <td><?= h($payment['player_rsn']) ?></td>
+                                            <td><?= h($payment['description']) ?></td>
+                                            <td class="right amount"><?= h(GP::format($payment['amount'])) ?></td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            <?php endif; ?>
+                        </div>
+                    </details>
+                <?php endforeach; ?>
+            </div>
         <?php endif; ?>
     </section>
     <?php

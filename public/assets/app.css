@@ -268,3 +268,10 @@ td small { display: block; color: var(--muted); margin-top: .15rem; }
 @media (max-width: 760px) {
     .acting-admin-pill { width: 100%; }
 }
+
+.button.danger {
+    border-color: rgba(226,138,125,.45);
+    background: linear-gradient(180deg, rgba(121, 47, 39, .9), rgba(62, 25, 21, .9));
+    color: #ffe2dc;
+}
+.warning-text { color: var(--gold); }

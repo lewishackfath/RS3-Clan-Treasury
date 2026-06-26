@@ -286,6 +286,54 @@ final class PayoutRequestService
         }
     }
 
+
+
+    public function cancel(string $uuid, int $adminId, ?string $notes = null): array
+    {
+        if ($adminId <= 0) {
+            throw new \InvalidArgumentException('admin_id is required');
+        }
+
+        $pdo = Database::pdo();
+        $pdo->beginTransaction();
+
+        try {
+            $row = $this->lockByUuid($uuid);
+            if ($row['status'] !== 'pending') {
+                throw new \RuntimeException('Only pending payout requests can be cancelled. Paid payouts need a ledger correction instead.', 409);
+            }
+
+            $before = $this->format($this->hydrateRow($row));
+            $metadata = $row['metadata'] ? json_decode((string)$row['metadata'], true) : [];
+            if (!is_array($metadata)) {
+                $metadata = [];
+            }
+            $metadata['cancelled'] = [
+                'cancelled_by_admin_id' => $adminId,
+                'cancelled_at' => gmdate('Y-m-d H:i:s'),
+                'notes' => $notes,
+            ];
+
+            $stmt = $pdo->prepare(
+                'UPDATE treasury_payout_requests
+                 SET status = "cancelled", metadata = :metadata
+                 WHERE id = :id'
+            );
+            $stmt->execute([
+                'metadata' => json_encode($metadata, JSON_UNESCAPED_SLASHES),
+                'id' => (int)$row['id'],
+            ]);
+
+            $pdo->commit();
+            $after = $this->getByUuid($uuid);
+            AuditService::log('payout_request.cancelled', 'treasury_payout_request', $uuid, $before, $after, null, $adminId);
+            return $after;
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+    }
+
     private function validateCreate(array $data): void
     {
         foreach (['source_type', 'source_id', 'payee_rsn', 'amount', 'payout_type'] as $field) {
@@ -334,6 +382,28 @@ final class PayoutRequestService
             throw new \RuntimeException('Payout request not found', 404);
         }
         return $row;
+    }
+
+
+
+    private function hydrateRow(array $row): array
+    {
+        $stmt = Database::pdo()->prepare(
+            'SELECT pr.*, a.slug AS app_slug, a.name AS app_name,
+                    admin.display_name AS paid_by_display_name,
+                    admin.rsn AS paid_by_rsn
+             FROM treasury_payout_requests pr
+             JOIN treasury_apps a ON a.id = pr.app_id
+             LEFT JOIN treasury_admins admin ON admin.id = pr.paid_by_admin_id
+             WHERE pr.id = :id
+             LIMIT 1'
+        );
+        $stmt->execute(['id' => (int)$row['id']]);
+        $hydrated = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$hydrated) {
+            throw new \RuntimeException('Payout request not found', 404);
+        }
+        return $hydrated;
     }
 
     private function format(array $row): array
