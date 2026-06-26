@@ -731,6 +731,7 @@ $expenseAccounts = $loggedIn ? $accountService->postingAccounts('expense') : [];
             <?php foreach (nav_items() as $key => $label): ?>
                 <a class="<?= $page === $key ? 'active' : '' ?>" href="<?= h(url_for($key)) ?>"><?= h($label) ?></a>
             <?php endforeach; ?>
+            <a href="api-docs.php" target="_blank" rel="noopener">API Docs</a>
         </nav>
     </aside>
 <?php endif; ?>
@@ -2349,8 +2350,9 @@ function render_source_apps(array $apps, array $apiKeys): void
 
         <div class="notice-card">
             <h2>How source apps work</h2>
-            <p>Manual web entries always use the locked <strong>Manual Entry</strong> source. External apps will use their own source app and API keys once the API layer is enabled.</p>
+            <p>Manual web entries always use the locked <strong>Manual Entry</strong> source. External apps use their own source app and API keys.</p>
             <p class="muted">API keys are shown once only. Store generated keys somewhere secure. The treasury stores only a SHA-256 hash.</p>
+            <p><a class="button small" href="api-docs.php" target="_blank" rel="noopener">Open public API documentation</a></p>
         </div>
     </section>
 

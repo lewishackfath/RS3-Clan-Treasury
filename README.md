@@ -407,6 +407,16 @@ No database migration is required if the DB bootstrap system is enabled, because
 
 ## API v1
 
+### Public API documentation page
+
+A public, login-free API reference is available at:
+
+```text
+https://your-treasury-domain.example/api-docs.php
+```
+
+Use this page as the live contract when building Bingo, Runes of Power, or future source-app integrations.
+
 API v1 lets source apps create request records and read status only. External apps cannot receive GP, pay prizes, reconcile, reverse, or post ledger transactions directly.
 
 Authenticate with:
