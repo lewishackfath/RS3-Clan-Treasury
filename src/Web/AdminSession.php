@@ -17,8 +17,17 @@ final class AdminSession
         }
     }
 
+    public static function passwordLoginEnabled(): bool
+    {
+        return Env::bool('ADMIN_PASSWORD_LOGIN_ENABLED', true);
+    }
+
     public static function login(string $password): bool
     {
+        if (!self::passwordLoginEnabled()) {
+            return false;
+        }
+
         $expected = Env::get('ADMIN_UI_PASSWORD', '');
         if ($expected === '') {
             $expected = Env::get('ADMIN_API_TOKEN', '');

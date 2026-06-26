@@ -47,6 +47,7 @@ cp .env.example .env
 4. Set a private fallback admin UI password in `.env`:
 
 ```env
+ADMIN_PASSWORD_LOGIN_ENABLED=true
 ADMIN_UI_PASSWORD=replace_with_a_long_private_password
 ```
 
@@ -60,9 +61,20 @@ php bin/create-admin.php "Lewis" "Lewis" "123456789012345678"
 
 7. Select an **Acting admin** in the top-right of the UI before posting treasury actions.
 
+
+### Disable fallback password login
+
+After confirming Discord OAuth works, set:
+
+```env
+ADMIN_PASSWORD_LOGIN_ENABLED=false
+```
+
+Keep `ADMIN_UI_PASSWORD` set to a long private value even when password login is disabled, but it will no longer be accepted by the login handler.
+
 ## Discord OAuth setup
 
-The app keeps the password login as a fallback, but Discord OAuth can be enabled once your Discord application is configured.
+The app keeps the password login as a fallback by default, but it can be disabled with `ADMIN_PASSWORD_LOGIN_ENABLED=false` once Discord OAuth is working.
 
 1. Create or open a Discord application in the Discord Developer Portal.
 2. Add this exact redirect URL to the app OAuth2 redirect list:

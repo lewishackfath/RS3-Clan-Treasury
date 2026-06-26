@@ -455,29 +455,36 @@ $apps = $loggedIn ? $appService->all(true) : [];
 function render_login(string $appName): void
 {
     $discordEnabled = DiscordOAuth::enabled();
+    $passwordLoginEnabled = AdminSession::passwordLoginEnabled();
     ?>
     <section class="login-card">
         <div class="brand large"><span class="brand-mark">◇</span><div><strong><?= h($appName) ?></strong><small>RS3 GP Accounting</small></div></div>
         <?php if ($discordEnabled): ?>
             <p class="muted">Sign in with Discord to manage the treasury. Your Discord user must be linked to a treasury admin, listed as an owner, or hold an allowed Discord role.</p>
             <a class="button primary full-button" href="<?= h(url_for('discord_login')) ?>">Sign in with Discord</a>
-            <details class="fallback-login">
-                <summary>Use fallback password login</summary>
+            <?php if ($passwordLoginEnabled): ?>
+                <details class="fallback-login">
+                    <summary>Use fallback password login</summary>
+                    <form method="post" class="stacked-form">
+                        <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                        <input type="hidden" name="action" value="login">
+                        <label>Admin password <input type="password" name="password"></label>
+                        <button class="button" type="submit">Open treasury with password</button>
+                    </form>
+                </details>
+            <?php endif; ?>
+        <?php else: ?>
+            <?php if ($passwordLoginEnabled): ?>
+                <p class="muted">Sign in with the temporary admin UI password from your <code>.env</code> file.</p>
                 <form method="post" class="stacked-form">
                     <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
                     <input type="hidden" name="action" value="login">
-                    <label>Admin password <input type="password" name="password"></label>
-                    <button class="button" type="submit">Open treasury with password</button>
+                    <label>Admin password <input type="password" name="password" autofocus required></label>
+                    <button class="button primary" type="submit">Open treasury</button>
                 </form>
-            </details>
-        <?php else: ?>
-            <p class="muted">Sign in with the temporary admin UI password from your <code>.env</code> file.</p>
-            <form method="post" class="stacked-form">
-                <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                <input type="hidden" name="action" value="login">
-                <label>Admin password <input type="password" name="password" autofocus required></label>
-                <button class="button primary" type="submit">Open treasury</button>
-            </form>
+            <?php else: ?>
+                <p class="muted warning-text">Password login is disabled and Discord OAuth is not enabled. Enable Discord OAuth or re-enable password login in <code>.env</code>.</p>
+            <?php endif; ?>
         <?php endif; ?>
     </section>
     <?php
