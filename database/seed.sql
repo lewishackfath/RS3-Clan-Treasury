@@ -1,6 +1,6 @@
 INSERT INTO treasury_apps (name, slug, description, is_active)
 VALUES
-('Manual Admin', 'manual_admin', 'Manual treasury administration actions', 1),
+('Manual Entry', 'manual_admin', 'Manual treasury administration actions', 1),
 ('Bingo', 'bingo', 'RS3 clan bingo treasury source', 1),
 ('Runes of Power', 'runes_of_power', 'Runes of Power treasury source', 1)
 ON DUPLICATE KEY UPDATE name = VALUES(name), description = VALUES(description), is_active = VALUES(is_active);
@@ -29,41 +29,3 @@ JOIN treasury_accounts parent ON parent.code = '5000'
 SET child.parent_account_id = parent.id
 WHERE child.code IN ('5100','6000');
 
-
-INSERT INTO treasury_accounts (code, name, account_type, parent_account_id, app_id, normal_balance, is_system, is_active)
-SELECT '4110', 'Bingo Entry Fees', 'income', parent.id, app.id, 'credit', 0, 1
-FROM treasury_accounts parent
-JOIN treasury_apps app ON app.slug = 'bingo'
-WHERE parent.code = '4000'
-ON DUPLICATE KEY UPDATE name = VALUES(name), account_type = VALUES(account_type), parent_account_id = VALUES(parent_account_id), app_id = VALUES(app_id), normal_balance = VALUES(normal_balance);
-
-INSERT INTO treasury_accounts (code, name, account_type, parent_account_id, app_id, normal_balance, is_system, is_active)
-SELECT '4210', 'Runes of Power Entry Fees', 'income', parent.id, app.id, 'credit', 0, 1
-FROM treasury_accounts parent
-JOIN treasury_apps app ON app.slug = 'runes_of_power'
-WHERE parent.code = '4000'
-ON DUPLICATE KEY UPDATE name = VALUES(name), account_type = VALUES(account_type), parent_account_id = VALUES(parent_account_id), app_id = VALUES(app_id), normal_balance = VALUES(normal_balance);
-
-INSERT INTO treasury_accounts (code, name, account_type, parent_account_id, app_id, normal_balance, is_system, is_active)
-SELECT '5110', 'Bingo Prize Payouts', 'expense', parent.id, app.id, 'debit', 0, 1
-FROM treasury_accounts parent
-JOIN treasury_apps app ON app.slug = 'bingo'
-WHERE parent.code = '5000'
-ON DUPLICATE KEY UPDATE name = VALUES(name), account_type = VALUES(account_type), parent_account_id = VALUES(parent_account_id), app_id = VALUES(app_id), normal_balance = VALUES(normal_balance);
-
-INSERT INTO treasury_accounts (code, name, account_type, parent_account_id, app_id, normal_balance, is_system, is_active)
-SELECT '5210', 'Runes of Power Prize Payouts', 'expense', parent.id, app.id, 'debit', 0, 1
-FROM treasury_accounts parent
-JOIN treasury_apps app ON app.slug = 'runes_of_power'
-WHERE parent.code = '5000'
-ON DUPLICATE KEY UPDATE name = VALUES(name), account_type = VALUES(account_type), parent_account_id = VALUES(parent_account_id), app_id = VALUES(app_id), normal_balance = VALUES(normal_balance);
-
-UPDATE treasury_accounts child
-JOIN treasury_accounts parent ON parent.code = '4000'
-SET child.parent_account_id = parent.id
-WHERE child.code IN ('4110','4210');
-
-UPDATE treasury_accounts child
-JOIN treasury_accounts parent ON parent.code = '5000'
-SET child.parent_account_id = parent.id
-WHERE child.code IN ('5110','5210');

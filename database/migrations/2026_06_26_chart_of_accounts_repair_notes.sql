@@ -1,0 +1,4 @@
+-- If your database is missing revenue_account_id or expense_account_id, use the PHP repair script instead:
+-- php bin/repair-chart-of-accounts.php
+--
+-- The PHP script is idempotent and safely checks which columns, indexes, and foreign keys already exist.

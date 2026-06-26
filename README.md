@@ -17,7 +17,7 @@ The application can be used manually through the admin UI before any external ap
 - Manual admin-paid expenses and reimbursements.
 - Ledger transaction history with debit/credit lines.
 - Ledger correction workflow using linked reversal transactions.
-- Source app management for Bingo, Runes of Power, and future apps.
+- Source app management for Bingo, Runes of Power, and future API integrations.
 - MySQL schema for apps, API keys, admins, accounts, payment requests, payout requests, reconciliations, ledger transactions, ledger entries, idempotency, and audit logs.
 - Minimal API layer, ready to expand after the application workflow is settled.
 - CLI helpers to create source apps, API keys, and admins.
@@ -299,12 +299,7 @@ mysql -u USER -p DATABASE < database/migrations/2026_06_26_chart_of_accounts.sql
 
 The Chart of Accounts page lets you create and archive revenue and expense accounts. System accounts remain locked because they power the ledger mechanics.
 
-Default posting accounts added:
-
-- `4110` Bingo Entry Fees
-- `4210` Runes of Power Entry Fees
-- `5110` Bingo Prize Payouts
-- `5210` Runes of Power Prize Payouts
+Default posting accounts are now user-managed from Chart of Accounts. Create the revenue and expense accounts you want to report against, such as Bingo Entry Fees, Runes of Power Contributions, Prize Payouts, or Giveaways.
 
 Money-in requests now choose a Revenue account. Money-out requests and manual expenses now choose an Expense account. Existing open requests are assigned sensible defaults by the migration.
 
@@ -320,3 +315,29 @@ This build adds account editing and safer account lifecycle controls:
 - The RuneScape parchment UI has been slightly darkened to reduce bright white surfaces.
 
 No database migration is required for this update if the Chart of Accounts migration has already been applied.
+
+
+## Repairing a missing Chart of Accounts migration
+
+If you see an error like `Unknown column revenue_account_id`, the Chart of Accounts database migration has not been applied to the live database. Run:
+
+```bash
+php bin/repair-chart-of-accounts.php
+```
+
+The repair script checks whether the required columns, indexes, foreign keys, default accounts, and backfilled request account links already exist before changing anything.
+
+
+## Manual Xero-style request flow
+
+This build hides source app/source ID fields from the web UI. Manual web entries are automatically recorded against the `Manual Entry` source app. Later API integrations will provide the real source app and source IDs.
+
+Money-in requests now follow the finance workflow: payer, description, amount, and revenue account. Money-out requests use payee, description, amount, and expense account. The old purpose/type selectors are no longer shown in the web UI; the selected GL account is the category.
+
+After deploying, run this optional cleanup migration to rename the manual source app:
+
+```bash
+mysql -u USER -p DATABASE < database/migrations/2026_06_26_manual_xero_flow.sql
+```
+
+Earlier starter accounts such as Bingo Entry Fees or Runes of Power Prize Payouts can be renamed, deleted if unused, or archived from Chart of Accounts. System header accounts are no longer selectable for Money In/Out requests.

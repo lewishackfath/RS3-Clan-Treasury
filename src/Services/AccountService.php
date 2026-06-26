@@ -113,7 +113,7 @@ final class AccountService
              LEFT JOIN treasury_apps app ON app.id = ta.app_id
              WHERE ta.account_type = :type
                AND ta.is_active = 1
-               AND ta.code NOT IN ("4000", "5000")
+               AND ta.is_system = 0
              ORDER BY ta.code ASC'
         );
         $stmt->execute(['type' => $type]);
@@ -281,38 +281,26 @@ final class AccountService
 
     public function defaultRevenueAccountId(int $appId, string $purpose): int
     {
-        if ($purpose === 'clan_contribution') {
-            return $this->accountIdByCode('4300');
-        }
-
-        $slug = $this->appSlug($appId);
-        if ($purpose === 'entry_fee') {
-            $code = match ($slug) {
-                'bingo' => '4110',
-                'runes_of_power' => '4210',
-                default => '4100',
-            };
-
-            return $this->accountIdByCode($code);
-        }
-
-        return $this->accountIdByCode('4300');
+        return $this->firstActivePostingAccountId('income') ?? $this->accountIdByCode('4000');
     }
 
     public function defaultExpenseAccountId(int $appId, string $payoutType): int
     {
-        if ($payoutType === 'prize') {
-            $slug = $this->appSlug($appId);
-            $code = match ($slug) {
-                'bingo' => '5110',
-                'runes_of_power' => '5210',
-                default => '5100',
-            };
+        return $this->firstActivePostingAccountId('expense') ?? $this->accountIdByCode('5000');
+    }
 
-            return $this->accountIdByCode($code);
-        }
 
-        return $this->accountIdByCode('6000');
+    private function firstActivePostingAccountId(string $type): ?int
+    {
+        $stmt = Database::pdo()->prepare(
+            'SELECT id FROM treasury_accounts
+             WHERE account_type = :type AND is_active = 1 AND is_system = 0
+             ORDER BY code ASC
+             LIMIT 1'
+        );
+        $stmt->execute(['type' => $type]);
+        $id = $stmt->fetchColumn();
+        return $id ? (int)$id : null;
     }
 
     public function ensureAdminHeldAccount(int $adminId): int

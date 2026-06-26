@@ -39,7 +39,7 @@ final class PayoutRequestService
             'payee_rsn' => $data['payee_rsn'],
             'amount' => (int)$data['amount'],
             'payout_type' => $data['payout_type'],
-            'description' => $data['description'] ?? $data['payout_type'] . ' to ' . $data['payee_rsn'],
+            'description' => $data['description'] ?? 'Money paid to ' . $data['payee_rsn'],
             'expense_account_id' => $expenseAccountId,
             'metadata' => isset($data['metadata']) && is_array($data['metadata']) ? json_encode($data['metadata'], JSON_UNESCAPED_SLASHES) : null,
         ]);
@@ -112,7 +112,7 @@ final class PayoutRequestService
                     'direction' => 'debit',
                     'amount' => (int)$row['amount'],
                     'player_rsn' => $row['payee_rsn'],
-                    'memo' => $row['payout_type'],
+                    'memo' => $row['description'],
                 ],
                 [
                     'account_id' => $treasuryAccountId,
@@ -185,7 +185,7 @@ final class PayoutRequestService
                     'amount' => (int)$row['amount'],
                     'admin_id' => $adminId,
                     'player_rsn' => $row['payee_rsn'],
-                    'memo' => $row['payout_type'],
+                    'memo' => $row['description'],
                 ],
                 [
                     'account_id' => $payableAccountId,

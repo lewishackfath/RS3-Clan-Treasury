@@ -31,9 +31,9 @@ final class AppService
         return $row;
     }
 
-    public function manualContext(int $appId): \Treasury\Auth\ApiContext
+    public function manualContext(?int $appId = null): \Treasury\Auth\ApiContext
     {
-        $app = $this->get($appId);
+        $app = $appId && $appId > 0 ? $this->get($appId) : $this->manualApp();
         return new \Treasury\Auth\ApiContext(
             (int)$app['id'],
             (string)$app['slug'],
@@ -41,6 +41,22 @@ final class AppService
             0,
             ['*']
         );
+    }
+
+    public function manualApp(): array
+    {
+        $stmt = Database::pdo()->prepare('SELECT * FROM treasury_apps WHERE slug = "manual_admin" LIMIT 1');
+        $stmt->execute();
+        $app = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($app) {
+            return $app;
+        }
+
+        return $this->create([
+            'name' => 'Manual Entry',
+            'slug' => 'manual_admin',
+            'description' => 'Manual treasury administration actions',
+        ]);
     }
 
     public function create(array $data): array

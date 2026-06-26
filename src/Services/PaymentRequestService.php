@@ -41,7 +41,7 @@ final class PaymentRequestService
             'player_rsn' => $data['player_rsn'],
             'amount' => (int)$data['amount'],
             'purpose' => $data['purpose'],
-            'description' => $data['description'] ?? $data['purpose'] . ' from ' . $data['player_rsn'],
+            'description' => $data['description'] ?? 'Money received from ' . $data['player_rsn'],
             'revenue_account_id' => $revenueAccountId,
             'metadata' => isset($data['metadata']) && is_array($data['metadata']) ? json_encode($data['metadata'], JSON_UNESCAPED_SLASHES) : null,
         ]);
@@ -123,7 +123,7 @@ final class PaymentRequestService
                     'direction' => 'credit',
                     'amount' => (int)$row['amount'],
                     'player_rsn' => $row['player_rsn'],
-                    'memo' => $row['purpose'],
+                    'memo' => $row['description'],
                 ],
             ]);
 
