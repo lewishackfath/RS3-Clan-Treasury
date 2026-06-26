@@ -10,7 +10,7 @@ use Treasury\Support\Env;
 
 final class DatabaseBootstrap
 {
-    private const SCHEMA_VERSION = '2026.06.26.bootstrap.1';
+    private const SCHEMA_VERSION = '2026.06.26.bootstrap.2.users';
 
     private const SYSTEM_APPS = [
         [
@@ -156,8 +156,23 @@ final class DatabaseBootstrap
                 display_name VARCHAR(100) NULL,
                 is_active TINYINT(1) NOT NULL DEFAULT 1,
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NULL,
                 INDEX idx_treasury_admins_rsn (rsn),
                 INDEX idx_treasury_admins_discord (discord_user_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'CREATE TABLE IF NOT EXISTS treasury_admin_rsn_history (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                admin_id BIGINT UNSIGNED NOT NULL,
+                rsn VARCHAR(20) NOT NULL,
+                effective_from DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                effective_to DATETIME NULL,
+                is_current TINYINT(1) NOT NULL DEFAULT 1,
+                changed_by_admin_id BIGINT UNSIGNED NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_treasury_admin_rsn_history_admin (admin_id),
+                INDEX idx_treasury_admin_rsn_history_rsn (rsn),
+                INDEX idx_treasury_admin_rsn_history_current (is_current)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
 
             'CREATE TABLE IF NOT EXISTS treasury_accounts (
@@ -320,6 +335,9 @@ final class DatabaseBootstrap
             'treasury_apps' => [
                 'updated_at' => 'DATETIME NULL',
             ],
+            'treasury_admins' => [
+                'updated_at' => 'DATETIME NULL',
+            ],
             'treasury_accounts' => [
                 'normal_balance' => 'ENUM("debit","credit") NOT NULL DEFAULT "debit"',
                 'is_system' => 'TINYINT(1) NOT NULL DEFAULT 0',
@@ -359,6 +377,9 @@ final class DatabaseBootstrap
             ['treasury_api_keys', 'idx_treasury_api_keys_active', 'is_active'],
             ['treasury_admins', 'idx_treasury_admins_rsn', 'rsn'],
             ['treasury_admins', 'idx_treasury_admins_discord', 'discord_user_id'],
+            ['treasury_admin_rsn_history', 'idx_treasury_admin_rsn_history_admin', 'admin_id'],
+            ['treasury_admin_rsn_history', 'idx_treasury_admin_rsn_history_rsn', 'rsn'],
+            ['treasury_admin_rsn_history', 'idx_treasury_admin_rsn_history_current', 'is_current'],
             ['treasury_accounts', 'idx_treasury_accounts_type', 'account_type'],
             ['treasury_accounts', 'idx_treasury_accounts_admin', 'admin_id'],
             ['treasury_accounts', 'idx_treasury_accounts_app', 'app_id'],
@@ -392,6 +413,8 @@ final class DatabaseBootstrap
             $stmt->execute($app);
         }
 
+        self::syncAdminRsnHistory($pdo);
+
         foreach (self::SYSTEM_ACCOUNTS as $account) {
             $stmt = $pdo->prepare(
                 'INSERT INTO treasury_accounts (code, name, account_type, normal_balance, is_system, is_active)
@@ -408,6 +431,27 @@ final class DatabaseBootstrap
                 'name' => $account['name'],
                 'account_type' => $account['account_type'],
                 'normal_balance' => $account['normal_balance'],
+            ]);
+        }
+    }
+
+    private static function syncAdminRsnHistory(PDO $pdo): void
+    {
+        $admins = $pdo->query('SELECT id, rsn FROM treasury_admins')->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($admins as $admin) {
+            $stmt = $pdo->prepare('SELECT COUNT(*) FROM treasury_admin_rsn_history WHERE admin_id = :admin_id');
+            $stmt->execute(['admin_id' => (int)$admin['id']]);
+            if ((int)$stmt->fetchColumn() > 0) {
+                continue;
+            }
+
+            $stmt = $pdo->prepare(
+                'INSERT INTO treasury_admin_rsn_history (admin_id, rsn, effective_from, effective_to, is_current, changed_by_admin_id, created_at)
+                 VALUES (:admin_id, :rsn, NOW(), NULL, 1, NULL, NOW())'
+            );
+            $stmt->execute([
+                'admin_id' => (int)$admin['id'],
+                'rsn' => (string)$admin['rsn'],
             ]);
         }
     }

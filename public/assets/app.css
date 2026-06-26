@@ -409,3 +409,17 @@ tr:hover td { background: rgba(255, 248, 226, .22); }
 @media (max-width: 760px) {
     .account-edit-form { position: static; width: 100%; margin-top: .5rem; }
 }
+
+.user-edit summary,
+.user-history summary { margin-bottom: .45rem; }
+.history-list { display: grid; gap: .5rem; min-width: 230px; }
+.history-row {
+    border: 1px solid var(--border);
+    border-radius: .7rem;
+    background: var(--surface-soft);
+    padding: .6rem .7rem;
+}
+.history-row strong { display: inline-block; margin-right: .35rem; }
+.history-row small { display: block; margin-top: .2rem; color: var(--muted); }
+.badge-active, .badge-current { color: var(--green); border-color: #b9d7a7; background: var(--green-soft); }
+.badge-archived { color: var(--muted); border-color: var(--border); background: var(--surface-soft); }

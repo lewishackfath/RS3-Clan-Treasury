@@ -30,8 +30,25 @@ CREATE TABLE treasury_admins (
     display_name VARCHAR(100) NULL,
     is_active TINYINT(1) NOT NULL DEFAULT 1,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NULL,
     INDEX idx_treasury_admins_rsn (rsn),
     INDEX idx_treasury_admins_discord (discord_user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE treasury_admin_rsn_history (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    admin_id BIGINT UNSIGNED NOT NULL,
+    rsn VARCHAR(20) NOT NULL,
+    effective_from DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    effective_to DATETIME NULL,
+    is_current TINYINT(1) NOT NULL DEFAULT 1,
+    changed_by_admin_id BIGINT UNSIGNED NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (admin_id) REFERENCES treasury_admins(id),
+    FOREIGN KEY (changed_by_admin_id) REFERENCES treasury_admins(id),
+    INDEX idx_treasury_admin_rsn_history_admin (admin_id),
+    INDEX idx_treasury_admin_rsn_history_rsn (rsn),
+    INDEX idx_treasury_admin_rsn_history_current (is_current)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE treasury_accounts (

@@ -68,6 +68,7 @@ function nav_items(): array
         'reconciliation' => 'Bank reconciliation',
         'transactions' => 'Ledger',
         'chart_accounts' => 'Chart of Accounts',
+        'users' => 'Users',
         'settings' => 'Settings',
     ];
 }
@@ -82,6 +83,7 @@ function page_title(string $page): string
         'new_admin_paid_expense' => 'New admin-paid expense',
         'new_admin_reimbursement' => 'New admin reimbursement',
         'chart_accounts' => 'Chart of Accounts',
+        'users' => 'Users',
     ][$page] ?? (nav_items()[$page] ?? ucwords(str_replace('_', ' ', $page)));
 }
 
@@ -93,8 +95,9 @@ function page_description(string $page): string
         'payouts' => 'Manage prizes, expenses, admin-paid payouts, and reimbursements.',
         'reconciliation' => 'Move admin-held GP into the official treasury with a clear audit trail.',
         'transactions' => 'Review posted ledger entries and reverse mistakes safely.',
-        'settings' => 'Manage treasury admins, source apps, and Discord login status.',
+        'settings' => 'Manage source apps and Discord login status.',
         'chart_accounts' => 'Manage revenue and expense ledger accounts used to categorise GP transactions.',
+        'users' => 'Manage treasury users, Discord links, active status, and RSN changes.',
         'new_payment' => 'Create an expected incoming GP payment for entry fees, contributions, or other money-in workflows.',
         'new_payout' => 'Create an outgoing GP request for prizes, expenses, or reimbursement workflows.',
         'new_opening_balance' => 'Post an opening balance or one-off official treasury adjustment.',
@@ -271,15 +274,36 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 redirect_to(current_page());
 
             case 'create_admin':
-                $admin = (new AdminService())->create($_POST);
+                $actorId = AdminSession::actingAdminId();
+                $admin = (new AdminService())->create($_POST, $actorId ?: null);
                 if (!AdminSession::actingAdminId() && AdminSession::canActAsAdmin((int)$admin['id'])) {
                     AdminSession::setActingAdminId((int)$admin['id']);
                 }
-                Flash::add('success', 'Treasury admin created.');
+                Flash::add('success', 'Treasury user created.');
                 if (AdminSession::actingAdminLockEnabled() && !AdminSession::actingAdminId()) {
-                    Flash::add('warning', 'Acting admin is locked to your Discord login. Link your Discord user ID to your treasury admin record to post treasury actions.');
+                    Flash::add('warning', 'Acting admin is locked to your Discord login. Link your Discord user ID to your treasury user record to post treasury actions.');
                 }
-                redirect_to('settings');
+                redirect_to('users');
+
+            case 'update_admin':
+                (new AdminService())->update((int)($_POST['admin_id'] ?? 0), $_POST, require_acting_admin());
+                Flash::add('success', 'Treasury user updated.');
+                redirect_to('users');
+
+            case 'archive_admin':
+                (new AdminService())->setActive((int)($_POST['admin_id'] ?? 0), false, require_acting_admin());
+                Flash::add('success', 'Treasury user archived.');
+                redirect_to('users');
+
+            case 'restore_admin':
+                (new AdminService())->setActive((int)($_POST['admin_id'] ?? 0), true, require_acting_admin());
+                Flash::add('success', 'Treasury user restored.');
+                redirect_to('users');
+
+            case 'delete_admin':
+                (new AdminService())->deleteIfUnused((int)($_POST['admin_id'] ?? 0), require_acting_admin());
+                Flash::add('success', 'Unused treasury user deleted.');
+                redirect_to('users');
 
             case 'create_app':
                 (new AppService())->create($_POST);
@@ -493,6 +517,7 @@ $appService = new AppService();
 $accountService = new AccountService();
 $query = new TreasuryQueryService();
 $admins = $loggedIn ? $adminService->all(true) : [];
+$allAdmins = $loggedIn ? $adminService->all(false) : [];
 $apps = $loggedIn ? $appService->all(true) : [];
 $revenueAccounts = $loggedIn ? $accountService->postingAccounts('income') : [];
 $expenseAccounts = $loggedIn ? $accountService->postingAccounts('expense') : [];
@@ -564,7 +589,7 @@ $expenseAccounts = $loggedIn ? $accountService->postingAccounts('expense') : [];
                             <small>Locked to Discord login</small>
                         <?php else: ?>
                             <strong>Not linked</strong>
-                            <small>Link your Discord user ID in Settings</small>
+                            <small>Link your Discord user ID in Users</small>
                         <?php endif; ?>
                     </div>
                 <?php else: ?>
@@ -623,8 +648,10 @@ $expenseAccounts = $loggedIn ? $accountService->postingAccounts('expense') : [];
         <?php render_transactions($query, $apps); ?>
     <?php elseif ($page === 'chart_accounts'): ?>
         <?php render_chart_accounts((new AccountService())->all(true), $apps); ?>
+    <?php elseif ($page === 'users'): ?>
+        <?php render_users($allAdmins); ?>
     <?php elseif ($page === 'settings'): ?>
-        <?php render_settings($admins, $apps); ?>
+        <?php render_settings($apps); ?>
     <?php else: ?>
         <section class="card"><h2>Page not found</h2></section>
     <?php endif; ?>
@@ -679,9 +706,9 @@ function render_dashboard(TreasuryQueryService $query, array $admins): void
     ?>
     <?php if (!$admins): ?>
         <section class="notice-card">
-            <h2>Create your first treasury admin</h2>
-            <p>No admins exist yet. Open Settings and create yourself as the first admin before posting treasury actions.</p>
-            <a class="button primary" href="<?= h(url_for('settings')) ?>">Open settings</a>
+            <h2>Create your first treasury user</h2>
+            <p>No treasury users exist yet. Open Users and create yourself as the first user before posting treasury actions.</p>
+            <a class="button primary" href="<?= h(url_for('users')) ?>">Open users</a>
         </section>
     <?php endif; ?>
 
@@ -1296,7 +1323,133 @@ function render_chart_accounts(array $accounts, array $apps): void
     <?php
 }
 
-function render_settings(array $admins, array $apps): void
+function render_users(array $admins): void
+{
+    $adminService = new AdminService();
+    $history = $adminService->rsnHistoryForAdmins(array_map(fn(array $admin): int => (int)$admin['id'], $admins));
+    ?>
+    <section class="grid two">
+        <div class="card">
+            <div class="section-header">
+                <div>
+                    <h2>Create treasury user</h2>
+                    <p class="muted">Treasury users are admins who can hold GP, receive payments, pay expenses, or post ledger actions.</p>
+                </div>
+            </div>
+            <form method="post" class="grid-form">
+                <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                <input type="hidden" name="action" value="create_admin">
+                <label>Display name <input name="display_name" placeholder="Lewis"></label>
+                <label>Current RSN <input name="rsn" required placeholder="RuneScape name"></label>
+                <label class="wide">Discord user ID <input name="discord_user_id" placeholder="Required for Discord auto-link"></label>
+                <div class="form-actions"><button class="button primary" type="submit">Create user</button></div>
+            </form>
+        </div>
+
+        <div class="notice-card">
+            <h2>RSN changes</h2>
+            <p>When a user changes RSN, edit their current RSN here. The app keeps an RSN history so old records remain understandable while future transactions use the current RSN.</p>
+            <p class="muted">Users with no treasury history can be deleted. Users with activity should be archived instead, preserving the audit trail.</p>
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="section-header">
+            <div>
+                <h2>Treasury users</h2>
+                <p class="muted">Manage active users, Discord links, and RSN changes.</p>
+            </div>
+            <span class="pill"><?= count($admins) ?> users</span>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>User</th><th>Current RSN</th><th>Discord user ID</th><th>Usage</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody>
+                <?php foreach ($admins as $admin): ?>
+                    <?php
+                        $adminId = (int)$admin['id'];
+                        $usageTotal = (int)($admin['ledger_entry_count'] ?? 0)
+                            + (int)($admin['posted_transaction_count'] ?? 0)
+                            + (int)($admin['reconciliation_count'] ?? 0)
+                            + (int)($admin['received_payment_count'] ?? 0)
+                            + (int)($admin['paid_payout_count'] ?? 0);
+                        $isActive = (int)$admin['is_active'] === 1;
+                    ?>
+                    <tr>
+                        <td><strong><?= h($admin['display_name'] ?: $admin['rsn']) ?></strong><small>ID <?= $adminId ?></small></td>
+                        <td><strong><?= h($admin['rsn']) ?></strong></td>
+                        <td><?= $admin['discord_user_id'] ? '<code>' . h($admin['discord_user_id']) . '</code>' : '<span class="muted">Not linked</span>' ?></td>
+                        <td>
+                            <?= $usageTotal ?> references
+                            <small><?= (int)($admin['ledger_entry_count'] ?? 0) ?> ledger · <?= (int)($admin['received_payment_count'] ?? 0) ?> received · <?= (int)($admin['paid_payout_count'] ?? 0) ?> paid · <?= (int)($admin['reconciliation_count'] ?? 0) ?> reconciliations</small>
+                        </td>
+                        <td><?= $isActive ? badge('active') : badge('archived') ?></td>
+                        <td class="actions-cell">
+                            <?php if ($isActive): ?>
+                                <details class="inline-edit user-edit">
+                                    <summary class="button small">Edit</summary>
+                                    <form method="post" class="stacked-form compact account-edit-form">
+                                        <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                        <input type="hidden" name="action" value="update_admin">
+                                        <input type="hidden" name="admin_id" value="<?= $adminId ?>">
+                                        <label>Display name <input name="display_name" value="<?= h($admin['display_name'] ?? '') ?>"></label>
+                                        <label>Current RSN <input name="rsn" value="<?= h($admin['rsn']) ?>" required></label>
+                                        <label>Discord user ID <input name="discord_user_id" value="<?= h($admin['discord_user_id'] ?? '') ?>"></label>
+                                        <button class="button small primary" type="submit">Save user</button>
+                                    </form>
+                                </details>
+                            <?php endif; ?>
+
+                            <details class="inline-edit user-history">
+                                <summary class="button small">RSN history</summary>
+                                <div class="history-list">
+                                    <?php foreach (($history[$adminId] ?? []) as $row): ?>
+                                        <div class="history-row">
+                                            <strong><?= h($row['rsn']) ?></strong>
+                                            <?= ((int)$row['is_current'] === 1) ? badge('current') : '' ?>
+                                            <small><?= h(local_datetime($row['effective_from'])) ?><?= $row['effective_to'] ? ' → ' . h(local_datetime($row['effective_to'])) : '' ?></small>
+                                        </div>
+                                    <?php endforeach; ?>
+                                    <?php if (empty($history[$adminId])): ?><p class="muted">No RSN history recorded yet.</p><?php endif; ?>
+                                </div>
+                            </details>
+
+                            <?php if (!$isActive): ?>
+                                <form method="post" class="row-action">
+                                    <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                    <input type="hidden" name="action" value="restore_admin">
+                                    <input type="hidden" name="admin_id" value="<?= $adminId ?>">
+                                    <button class="button small primary" type="submit">Restore</button>
+                                </form>
+                            <?php endif; ?>
+
+                            <?php if ($usageTotal === 0): ?>
+                                <form method="post" class="row-action" onsubmit="return confirm('Delete this unused treasury user? This cannot be undone.');">
+                                    <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                    <input type="hidden" name="action" value="delete_admin">
+                                    <input type="hidden" name="admin_id" value="<?= $adminId ?>">
+                                    <button class="button small danger" type="submit">Delete</button>
+                                </form>
+                            <?php elseif ($isActive): ?>
+                                <form method="post" class="row-action" onsubmit="return confirm('Archive this treasury user? Their history will remain available.');">
+                                    <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                    <input type="hidden" name="action" value="archive_admin">
+                                    <input type="hidden" name="admin_id" value="<?= $adminId ?>">
+                                    <button class="button small" type="submit">Archive</button>
+                                </form>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if (!$admins): ?><tr><td colspan="6" class="empty">No treasury users have been created yet.</td></tr><?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+    </section>
+    <?php
+}
+
+function render_settings(array $apps): void
 {
     ?>
     <section class="card">
@@ -1304,47 +1457,38 @@ function render_settings(array $admins, array $apps): void
             <h2>Discord integration</h2>
             <span class="pill"><?= DiscordOAuth::enabled() ? 'Enabled' : 'Disabled' ?></span>
         </div>
-        <p class="muted">Link each treasury admin to their Discord user ID. When Discord OAuth is enabled, a linked admin is automatically selected as the acting admin after login.</p>
+        <p class="muted">Discord OAuth controls sign-in. Link Discord user IDs to treasury users from the Users page.</p>
         <div class="config-grid">
             <div><span>Client ID</span><strong><?= h(Env::get('DISCORD_CLIENT_ID', '') ?: 'Not set') ?></strong></div>
             <div><span>Guild ID</span><strong><?= h(Env::get('DISCORD_GUILD_ID', '') ?: 'Optional') ?></strong></div>
             <div><span>Redirect URI</span><strong><?= h(Env::get('DISCORD_REDIRECT_URI', '') ?: 'Not set') ?></strong></div>
-            <div><span>Role IDs</span><strong><?= h(Env::get('DISCORD_ADMIN_ROLE_IDS', '') ?: 'Linked admins / owner IDs only') ?></strong></div>
+            <div><span>Role IDs</span><strong><?= h(Env::get('DISCORD_ADMIN_ROLE_IDS', '') ?: 'Linked users / owner IDs only') ?></strong></div>
         </div>
+        <p class="muted"><a href="<?= h(url_for('users')) ?>">Open Users</a> to manage treasury users, RSNs, Discord links, and active status.</p>
     </section>
 
-    <section class="grid two">
-        <div class="card">
-            <h2>Treasury admins</h2>
-            <form method="post" class="stacked-form compact">
-                <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                <input type="hidden" name="action" value="create_admin">
-                <label>Display name <input name="display_name" placeholder="Lewis"></label>
-                <label>RSN <input name="rsn" required></label>
-                <label>Discord user ID <input name="discord_user_id" placeholder="Required for Discord auto-link"></label>
-                <button class="button primary" type="submit">Create admin</button>
-            </form>
-            <table>
-                <thead><tr><th>Name</th><th>RSN</th><th>Discord user ID</th></tr></thead>
-                <tbody><?php foreach ($admins as $admin): ?><tr><td><?= h($admin['display_name']) ?></td><td><?= h($admin['rsn']) ?></td><td><?= h($admin['discord_user_id'] ?: '—') ?></td></tr><?php endforeach; ?></tbody>
-            </table>
+    <section class="card">
+        <div class="section-header">
+            <div>
+                <h2>Source apps</h2>
+                <p class="muted">Source apps are used by API integrations. Manual web entries automatically use the internal Manual Entry app.</p>
+            </div>
         </div>
-        <div class="card">
-            <h2>Source apps</h2>
-            <form method="post" class="stacked-form compact">
-                <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                <input type="hidden" name="action" value="create_app">
-                <label>Name <input name="name" placeholder="Bingo" required></label>
-                <label>Slug <input name="slug" placeholder="bingo"></label>
-                <label>Description <input name="description" placeholder="Optional"></label>
-                <button class="button primary" type="submit">Save source app</button>
-            </form>
+        <form method="post" class="grid-form">
+            <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+            <input type="hidden" name="action" value="create_app">
+            <label>Name <input name="name" placeholder="Bingo" required></label>
+            <label>Slug <input name="slug" placeholder="bingo"></label>
+            <label class="wide">Description <input name="description" placeholder="Optional"></label>
+            <div class="form-actions"><button class="button primary" type="submit">Save source app</button></div>
+        </form>
+        <div class="table-wrap">
             <table>
                 <thead><tr><th>Name</th><th>Slug</th><th>Description</th></tr></thead>
                 <tbody><?php foreach ($apps as $app): ?><tr><td><?= h($app['name']) ?></td><td><code><?= h($app['slug']) ?></code></td><td><?= h($app['description'] ?: '—') ?></td></tr><?php endforeach; ?></tbody>
             </table>
-            <p class="muted">API keys remain CLI-managed for now. The admin application can still tag manual records to Bingo, Runes of Power, or any future app.</p>
         </div>
+        <p class="muted">API keys remain CLI-managed for now.</p>
     </section>
     <?php
 }

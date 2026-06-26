@@ -7,7 +7,7 @@ The application can be used manually through the admin UI before any external ap
 ## Included
 
 - Admin web interface for day-to-day treasury management.
-- Discord OAuth admin login with linked treasury admins, owner IDs, and optional role checks.
+- Discord OAuth admin login with linked treasury users, owner IDs, and optional role checks.
 - Dashboard showing official treasury, admin-held GP, reimbursements owed, and total clan GP.
 - Manual opening balance / treasury adjustment flow.
 - Payment request grid for entry fees and clan contributions, including safe cancellation for pending requests.
@@ -20,7 +20,7 @@ The application can be used manually through the admin UI before any external ap
 - Source app management for future API integrations.
 - Automatic database bootstrap for required tables, columns, indexes, and system records.
 - Minimal API layer, ready to expand after the application workflow is settled.
-- CLI helpers to create source apps, API keys, and admins.
+- CLI helpers to create source apps, API keys, and treasury users.
 
 ## Requirements
 
@@ -57,7 +57,7 @@ ADMIN_UI_PASSWORD=replace_with_a_long_private_password
 
 5. Visit the application in your browser and sign in with that password.
 
-6. Create your first treasury admin from **Settings**, or use the CLI helper:
+6. Create your first treasury user from **Users**, or use the CLI helper:
 
 ```bash
 php bin/create-admin.php "Lewis" "Lewis" "123456789012345678"
@@ -110,7 +110,7 @@ DISCORD_GUILD_ID=123456789012345678
 DISCORD_ADMIN_ROLE_IDS=111111111111111111,222222222222222222
 ```
 
-5. Make sure each treasury admin row has the correct Discord user ID. You can create admins through **Settings** or with:
+5. Make sure each treasury user row has the correct Discord user ID. You can create users through **Users** or with:
 
 ```bash
 php bin/create-admin.php "Lewis" "Lewis" "123456789012345678"
@@ -126,7 +126,7 @@ When this is enabled, the header no longer shows the acting-admin dropdown. It s
 
 ## Recommended first-use workflow
 
-1. Open **Settings** and create your treasury admins.
+1. Open **Users** and create your treasury users.
 2. Open **Chart of Accounts** and create your own Revenue and Expense GL accounts, such as Bingo Entry Fees, Runes of Power Contributions, Prize Payouts, or Giveaways.
 3. Open **Dashboard** and post the current official treasury balance as an opening balance.
 4. Create Money In requests as players pay entry fees or clan contributions.
@@ -259,7 +259,7 @@ Posted transactions are immutable. Corrections should be handled with reversal t
 
 This package includes a cleaner finance-app style admin layout:
 
-- Sidebar labels now follow the workflow: Overview, Money in, Money out, Bank reconciliation, Ledger, Settings.
+- Sidebar labels now follow the workflow: Overview, Money in, Money out, Bank reconciliation, Ledger, Chart of Accounts, Users, Settings.
 - Overview focuses on cash position, things to do, and the three main workflows.
 - Money in and Money out use status summaries, status tabs, a filter panel, and a right-hand creation panel.
 - Bank reconciliation remains payment-specific and keeps reconciliation history visible.
@@ -341,4 +341,13 @@ Then load the app or run:
 php db_bootstrap.php
 ```
 
-After the app loads, create your admins and GL accounts from the UI.
+After the app loads, create your treasury users and GL accounts from the UI.
+
+
+## Users and RSN management
+
+Treasury users are managed from the dedicated **Users** page instead of Settings. Use this page to create users, link Discord user IDs, edit display names, and update current RSNs when RuneScape names change.
+
+When a current RSN is changed, the previous RSN is retained in `treasury_admin_rsn_history` so older audit and ledger records remain understandable. Users with no treasury activity can be deleted. Users with activity should be archived so the audit trail remains intact.
+
+The database bootstrap creates and keeps the RSN history table in sync automatically. No sample users are created.
