@@ -4,14 +4,12 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../src/bootstrap.php';
 
-use Treasury\Auth\AdminAuth;
 use Treasury\Auth\ApiAuth;
 use Treasury\Http\Response;
 use Treasury\Services\BalanceService;
 use Treasury\Services\IdempotencyService;
 use Treasury\Services\PaymentRequestService;
 use Treasury\Services\PayoutRequestService;
-use Treasury\Services\ReconciliationService;
 use Treasury\Support\Env;
 
 function request_json(): array
@@ -111,62 +109,44 @@ try {
     }
 
     if ($path === '/api/v1/balances' && $method === 'GET') {
-        ApiAuth::requireContext('transactions:read');
+        ApiAuth::requireContext('balances:read');
         Response::json((new BalanceService())->summary());
         exit;
     }
 
-    if ($path === '/api/v1/payment-requests' && $method === 'POST') {
+    if (($path === '/api/v1/money-in-requests' || $path === '/api/v1/payment-requests') && $method === 'POST') {
         $context = ApiAuth::requireContext('payments:create');
         with_idempotency($context, $rawBody, fn() => (new PaymentRequestService())->create($context, $body));
         exit;
     }
 
-    if (preg_match('#^/api/v1/payment-requests/([0-9a-fA-F-]{36})$#', $path, $m) && $method === 'GET') {
-        ApiAuth::requireContext('transactions:read');
+    if (preg_match('#^/api/v1/(?:money-in-requests|payment-requests)/([0-9a-fA-F-]{36})$#', $path, $m) && $method === 'GET') {
+        ApiAuth::requireContext('payments:read');
         Response::json((new PaymentRequestService())->getByUuid($m[1]));
         exit;
     }
 
-    if ($path === '/api/v1/payout-requests' && $method === 'POST') {
+    if (preg_match('#^/api/v1/(?:money-in-requests|payment-requests)/by-source/([^/]+)/([^/]+)$#', $path, $m) && $method === 'GET') {
+        $context = ApiAuth::requireContext('payments:read');
+        Response::json((new PaymentRequestService())->getBySource($context->appId, rawurldecode($m[1]), rawurldecode($m[2])));
+        exit;
+    }
+
+    if (($path === '/api/v1/money-out-requests' || $path === '/api/v1/payout-requests') && $method === 'POST') {
         $context = ApiAuth::requireContext('payouts:create');
         with_idempotency($context, $rawBody, fn() => (new PayoutRequestService())->create($context, $body));
         exit;
     }
 
-    if (preg_match('#^/api/v1/payout-requests/([0-9a-fA-F-]{36})$#', $path, $m) && $method === 'GET') {
-        ApiAuth::requireContext('transactions:read');
+    if (preg_match('#^/api/v1/(?:money-out-requests|payout-requests)/([0-9a-fA-F-]{36})$#', $path, $m) && $method === 'GET') {
+        ApiAuth::requireContext('payouts:read');
         Response::json((new PayoutRequestService())->getByUuid($m[1]));
         exit;
     }
 
-    if (preg_match('#^/api/v1/admin/payment-requests/([0-9a-fA-F-]{36})/receive$#', $path, $m) && $method === 'POST') {
-        AdminAuth::requireAdminToken();
-        Response::json((new PaymentRequestService())->receive($m[1], $body));
-        exit;
-    }
-
-    if ($path === '/api/v1/admin/reconciliations/complete' && $method === 'POST') {
-        AdminAuth::requireAdminToken();
-        Response::json((new ReconciliationService())->complete($body), 201);
-        exit;
-    }
-
-    if (preg_match('#^/api/v1/admin/payout-requests/([0-9a-fA-F-]{36})/pay-from-treasury$#', $path, $m) && $method === 'POST') {
-        AdminAuth::requireAdminToken();
-        Response::json((new PayoutRequestService())->payFromTreasury($m[1], $body));
-        exit;
-    }
-
-    if (preg_match('#^/api/v1/admin/payout-requests/([0-9a-fA-F-]{36})/pay-by-admin$#', $path, $m) && $method === 'POST') {
-        AdminAuth::requireAdminToken();
-        Response::json((new PayoutRequestService())->payByAdmin($m[1], $body));
-        exit;
-    }
-
-    if (preg_match('#^/api/v1/admin/payout-requests/([0-9a-fA-F-]{36})/reimburse-admin$#', $path, $m) && $method === 'POST') {
-        AdminAuth::requireAdminToken();
-        Response::json((new PayoutRequestService())->reimburseAdmin($m[1], $body));
+    if (preg_match('#^/api/v1/(?:money-out-requests|payout-requests)/by-source/([^/]+)/([^/]+)$#', $path, $m) && $method === 'GET') {
+        $context = ApiAuth::requireContext('payouts:read');
+        Response::json((new PayoutRequestService())->getBySource($context->appId, rawurldecode($m[1]), rawurldecode($m[2])));
         exit;
     }
 

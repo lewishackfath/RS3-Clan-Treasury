@@ -13,6 +13,7 @@ final class PayoutRequestService
 {
     public function create(ApiContext $context, array $data): array
     {
+        $data = $this->normaliseCreateData($data);
         $this->validateCreate($data);
         $existing = $this->findBySource($context->appId, $data['source_type'], $data['source_id']);
         if ($existing) {
@@ -20,9 +21,13 @@ final class PayoutRequestService
         }
 
         $accounts = new AccountService();
-        $expenseAccountId = !empty($data['expense_account_id'])
-            ? $accounts->requirePostingAccount((int)$data['expense_account_id'], ['expense'])
-            : $accounts->defaultExpenseAccountId($context->appId, (string)$data['payout_type']);
+        if (!empty($data['expense_account_code'])) {
+            $expenseAccountId = $accounts->requirePostingAccountByCode((string)$data['expense_account_code'], ['expense']);
+        } elseif (!empty($data['expense_account_id'])) {
+            $expenseAccountId = $accounts->requirePostingAccount((int)$data['expense_account_id'], ['expense']);
+        } else {
+            throw new \InvalidArgumentException('expense_account_code is required');
+        }
 
         $uuid = Uuid::v4();
         $stmt = Database::pdo()->prepare(
@@ -367,9 +372,17 @@ final class PayoutRequestService
         }
     }
 
+    private function normaliseCreateData(array $data): array
+    {
+        if (!isset($data['payout_type']) || $data['payout_type'] === '') {
+            $data['payout_type'] = 'expense';
+        }
+        return $data;
+    }
+
     private function validateCreate(array $data): void
     {
-        foreach (['source_type', 'source_id', 'payee_rsn', 'amount', 'payout_type'] as $field) {
+        foreach (['source_type', 'source_id', 'payee_rsn', 'amount'] as $field) {
             if (!isset($data[$field]) || $data[$field] === '') {
                 throw new \InvalidArgumentException($field . ' is required');
             }
@@ -382,6 +395,19 @@ final class PayoutRequestService
         if (!in_array($data['payout_type'], ['prize', 'expense', 'admin_reimbursement'], true)) {
             throw new \InvalidArgumentException('Invalid payout type');
         }
+
+        if (empty($data['expense_account_id']) && empty($data['expense_account_code'])) {
+            throw new \InvalidArgumentException('expense_account_code is required');
+        }
+    }
+
+    public function getBySource(int $appId, string $sourceType, string $sourceId): array
+    {
+        $result = $this->findBySource($appId, $sourceType, $sourceId);
+        if (!$result) {
+            throw new \RuntimeException('Payout request not found', 404);
+        }
+        return $result;
     }
 
     private function findBySource(int $appId, string $sourceType, string $sourceId): ?array

@@ -13,6 +13,7 @@ final class PaymentRequestService
 {
     public function create(ApiContext $context, array $data): array
     {
+        $data = $this->normaliseCreateData($data);
         $this->validateCreate($data);
         $pdo = Database::pdo();
 
@@ -22,9 +23,13 @@ final class PaymentRequestService
         }
 
         $accounts = new AccountService();
-        $revenueAccountId = !empty($data['revenue_account_id'])
-            ? $accounts->requirePostingAccount((int)$data['revenue_account_id'], ['income'])
-            : $accounts->defaultRevenueAccountId($context->appId, (string)$data['purpose']);
+        if (!empty($data['revenue_account_code'])) {
+            $revenueAccountId = $accounts->requirePostingAccountByCode((string)$data['revenue_account_code'], ['income']);
+        } elseif (!empty($data['revenue_account_id'])) {
+            $revenueAccountId = $accounts->requirePostingAccount((int)$data['revenue_account_id'], ['income']);
+        } else {
+            throw new \InvalidArgumentException('revenue_account_code is required');
+        }
 
         $uuid = Uuid::v4();
         $stmt = $pdo->prepare(
@@ -225,9 +230,20 @@ final class PaymentRequestService
         }
     }
 
+    private function normaliseCreateData(array $data): array
+    {
+        if (!isset($data['player_rsn']) && isset($data['payer_rsn'])) {
+            $data['player_rsn'] = $data['payer_rsn'];
+        }
+        if (!isset($data['purpose']) || $data['purpose'] === '') {
+            $data['purpose'] = 'other';
+        }
+        return $data;
+    }
+
     private function validateCreate(array $data): void
     {
-        foreach (['source_type', 'source_id', 'player_rsn', 'amount', 'purpose'] as $field) {
+        foreach (['source_type', 'source_id', 'player_rsn', 'amount'] as $field) {
             if (!isset($data[$field]) || $data[$field] === '') {
                 throw new \InvalidArgumentException($field . ' is required');
             }
@@ -240,6 +256,19 @@ final class PaymentRequestService
         if (!in_array($data['purpose'], ['entry_fee', 'clan_contribution', 'other'], true)) {
             throw new \InvalidArgumentException('Invalid payment purpose');
         }
+
+        if (empty($data['revenue_account_id']) && empty($data['revenue_account_code'])) {
+            throw new \InvalidArgumentException('revenue_account_code is required');
+        }
+    }
+
+    public function getBySource(int $appId, string $sourceType, string $sourceId): array
+    {
+        $result = $this->findBySource($appId, $sourceType, $sourceId);
+        if (!$result) {
+            throw new \RuntimeException('Payment request not found', 404);
+        }
+        return $result;
     }
 
     private function findBySource(int $appId, string $sourceType, string $sourceId): ?array
@@ -313,6 +342,7 @@ final class PaymentRequestService
             ],
             'source_type' => $row['source_type'],
             'source_id' => $row['source_id'],
+            'payer_rsn' => $row['player_rsn'],
             'player_rsn' => $row['player_rsn'],
             'amount' => (int)$row['amount'],
             'purpose' => $row['purpose'],

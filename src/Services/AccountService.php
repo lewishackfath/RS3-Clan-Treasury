@@ -57,6 +57,27 @@ final class AccountService
         return (int)$account['id'];
     }
 
+
+
+    public function requirePostingAccountByCode(string $code, array $allowedTypes): int
+    {
+        $code = strtoupper(trim($code));
+        if ($code === '') {
+            throw new \InvalidArgumentException('Ledger account code is required.');
+        }
+
+        $stmt = Database::pdo()->prepare(
+            'SELECT id FROM treasury_accounts WHERE code = :code LIMIT 1'
+        );
+        $stmt->execute(['code' => $code]);
+        $id = $stmt->fetchColumn();
+        if (!$id) {
+            throw new \InvalidArgumentException('Ledger account not found: ' . $code);
+        }
+
+        return $this->requirePostingAccount((int)$id, $allowedTypes);
+    }
+
     public function all(bool $includeInactive = true): array
     {
         $sql = 'SELECT ta.*, parent.code AS parent_code, parent.name AS parent_name,

@@ -403,3 +403,105 @@ The page supports:
 `Manual Entry` is a locked internal source app. Manual web transactions always use this source and API keys cannot be generated for it.
 
 No database migration is required if the DB bootstrap system is enabled, because the required `treasury_apps` and `treasury_api_keys` tables are already part of the bootstrap schema.
+
+
+## API v1
+
+API v1 lets source apps create request records and read status only. External apps cannot receive GP, pay prizes, reconcile, reverse, or post ledger transactions directly.
+
+Authenticate with:
+
+```http
+Authorization: Bearer <api_key>
+Idempotency-Key: <stable unique key for POST retries>
+Content-Type: application/json
+```
+
+### Check identity
+
+```http
+GET /api/v1/me
+```
+
+### Create Money In request
+
+```http
+POST /api/v1/money-in-requests
+```
+
+```json
+{
+  "source_type": "bingo_entry",
+  "source_id": "game_12_team_4_player_lodo",
+  "payer_rsn": "Lodo",
+  "amount": 10000000,
+  "description": "Bingo entry fee - Game 12",
+  "revenue_account_code": "4100",
+  "metadata": {
+    "game_id": 12,
+    "team_id": 4
+  }
+}
+```
+
+Required scope: `payments:create`.
+
+The older alias `POST /api/v1/payment-requests` is still supported.
+
+### Read Money In request
+
+```http
+GET /api/v1/money-in-requests/{request_uuid}
+GET /api/v1/money-in-requests/by-source/{source_type}/{source_id}
+```
+
+Required scope: `payments:read`.
+
+### Create Money Out request
+
+```http
+POST /api/v1/money-out-requests
+```
+
+```json
+{
+  "source_type": "bingo_prize",
+  "source_id": "game_12_line_row_3",
+  "payee_rsn": "K3 K",
+  "amount": 50000000,
+  "description": "Bingo line prize - Game 12",
+  "expense_account_code": "5100",
+  "metadata": {
+    "game_id": 12,
+    "line": "row_3"
+  }
+}
+```
+
+Required scope: `payouts:create`.
+
+The older alias `POST /api/v1/payout-requests` is still supported.
+
+### Read Money Out request
+
+```http
+GET /api/v1/money-out-requests/{request_uuid}
+GET /api/v1/money-out-requests/by-source/{source_type}/{source_id}
+```
+
+Required scope: `payouts:read`.
+
+### Read balances
+
+```http
+GET /api/v1/balances
+```
+
+Required scope: `balances:read`.
+
+### Notes
+
+- `source_type` + `source_id` must be unique per source app.
+- Repeating the same source reference returns the existing request instead of creating a duplicate.
+- `revenue_account_code` and `expense_account_code` must refer to active user-managed GL accounts.
+- Use idempotency keys for safe retries on POST requests.
