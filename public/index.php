@@ -60,6 +60,75 @@ function local_datetime(?string $value): string
 }
 
 
+function report_date_bounds(): array
+{
+    $from = report_normalise_date((string)($_GET['from'] ?? ''));
+    $to = report_normalise_date((string)($_GET['to'] ?? ''));
+
+    if ($from !== '' && $to !== '' && $from > $to) {
+        [$from, $to] = [$to, $from];
+    }
+
+    $tz = new DateTimeZone(Env::get('APP_TIMEZONE', 'Australia/Sydney'));
+
+    $fromUtc = null;
+    if ($from !== '') {
+        $fromLocal = new DateTimeImmutable($from . ' 00:00:00', $tz);
+        $fromUtc = $fromLocal->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+    }
+
+    $toUtc = null;
+    if ($to !== '') {
+        $toLocalExclusive = (new DateTimeImmutable($to . ' 00:00:00', $tz))->modify('+1 day');
+        $toUtc = $toLocalExclusive->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+    }
+
+    return [
+        'from' => $from,
+        'to' => $to,
+        'from_utc' => $fromUtc,
+        'to_utc' => $toUtc,
+    ];
+}
+
+function report_normalise_date(string $value): string
+{
+    $value = trim($value);
+    if ($value === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+        return '';
+    }
+
+    [$year, $month, $day] = array_map('intval', explode('-', $value));
+    return checkdate($month, $day, $year) ? $value : '';
+}
+
+function report_date_label(array $bounds): string
+{
+    $from = (string)($bounds['from'] ?? '');
+    $to = (string)($bounds['to'] ?? '');
+
+    if ($from === '' && $to === '') {
+        return 'all time';
+    }
+    if ($from !== '' && $to !== '') {
+        return report_pretty_date($from) . ' to ' . report_pretty_date($to);
+    }
+    if ($from !== '') {
+        return 'from ' . report_pretty_date($from);
+    }
+    return 'up to ' . report_pretty_date($to);
+}
+
+function report_pretty_date(string $date): string
+{
+    try {
+        return (new DateTimeImmutable($date))->format('d M Y');
+    } catch (Throwable) {
+        return $date;
+    }
+}
+
+
 function nav_items(): array
 {
     return [
