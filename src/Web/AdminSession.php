@@ -126,14 +126,35 @@ final class AdminSession
         return isset($_SESSION['acting_admin_id']) ? (int)$_SESSION['acting_admin_id'] : null;
     }
 
+    public static function actingAdminLockEnabled(): bool
+    {
+        return self::authMethod() === 'discord' && Env::bool('DISCORD_LOCK_ACTING_ADMIN_TO_LOGIN', false);
+    }
+
+    public static function lockedDiscordAdmin(): ?array
+    {
+        if (!self::actingAdminLockEnabled()) {
+            return null;
+        }
+
+        $discordUserId = self::discordUserId();
+        return $discordUserId ? (new AdminService())->findByDiscordUserId($discordUserId) : null;
+    }
+
+    public static function canActAsAdmin(int $adminId): bool
+    {
+        if (!self::actingAdminLockEnabled()) {
+            return true;
+        }
+
+        $admin = self::lockedDiscordAdmin();
+        return $admin && (int)$admin['id'] === $adminId;
+    }
+
     public static function setActingAdminId(int $adminId): void
     {
-        if (self::authMethod() === 'discord' && Env::bool('DISCORD_LOCK_ACTING_ADMIN_TO_LOGIN', false)) {
-            $discordUserId = self::discordUserId();
-            $admin = $discordUserId ? (new AdminService())->findByDiscordUserId($discordUserId) : null;
-            if (!$admin || (int)$admin['id'] !== $adminId) {
-                throw new \RuntimeException('Acting admin is locked to your Discord-linked treasury admin.');
-            }
+        if (!self::canActAsAdmin($adminId)) {
+            throw new \RuntimeException('Acting admin is locked to your Discord-linked treasury admin.');
         }
 
         $_SESSION['acting_admin_id'] = $adminId;

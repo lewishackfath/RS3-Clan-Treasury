@@ -182,10 +182,13 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 
             case 'create_admin':
                 $admin = (new AdminService())->create($_POST);
-                if (!AdminSession::actingAdminId()) {
+                if (!AdminSession::actingAdminId() && AdminSession::canActAsAdmin((int)$admin['id'])) {
                     AdminSession::setActingAdminId((int)$admin['id']);
                 }
                 Flash::add('success', 'Treasury admin created.');
+                if (AdminSession::actingAdminLockEnabled() && !AdminSession::actingAdminId()) {
+                    Flash::add('warning', 'Acting admin is locked to your Discord login. Link your Discord user ID to your treasury admin record to post treasury actions.');
+                }
                 redirect_to('settings');
 
             case 'create_app':
@@ -402,21 +405,43 @@ $apps = $loggedIn ? $appService->all(true) : [];
                     <strong><?= h(AdminSession::displayName()) ?></strong>
                     <?php if (AdminSession::discordUserId()): ?><small>ID: <?= h(AdminSession::discordUserId()) ?></small><?php endif; ?>
                 </div>
-                <form method="post" class="inline-form">
-                    <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                    <input type="hidden" name="action" value="set_acting_admin">
-                    <label>
-                        Acting admin
-                        <select name="admin_id" onchange="this.form.submit()">
-                            <option value="">Select…</option>
-                            <?php foreach ($admins as $admin): ?>
-                                <option value="<?= (int)$admin['id'] ?>" <?= AdminSession::actingAdminId() === (int)$admin['id'] ? 'selected' : '' ?>>
-                                    <?= h($admin['display_name'] ?: $admin['rsn']) ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </label>
-                </form>
+                <?php
+                    $actingAdmin = null;
+                    foreach ($admins as $admin) {
+                        if (AdminSession::actingAdminId() === (int)$admin['id']) {
+                            $actingAdmin = $admin;
+                            break;
+                        }
+                    }
+                ?>
+                <?php if (AdminSession::actingAdminLockEnabled()): ?>
+                    <div class="acting-admin-pill locked">
+                        <span>Acting admin</span>
+                        <?php if ($actingAdmin): ?>
+                            <strong><?= h($actingAdmin['display_name'] ?: $actingAdmin['rsn']) ?></strong>
+                            <small>Locked to Discord login</small>
+                        <?php else: ?>
+                            <strong>Not linked</strong>
+                            <small>Link your Discord user ID in Settings</small>
+                        <?php endif; ?>
+                    </div>
+                <?php else: ?>
+                    <form method="post" class="inline-form">
+                        <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                        <input type="hidden" name="action" value="set_acting_admin">
+                        <label>
+                            Acting admin
+                            <select name="admin_id" onchange="this.form.submit()">
+                                <option value="">Select…</option>
+                                <?php foreach ($admins as $admin): ?>
+                                    <option value="<?= (int)$admin['id'] ?>" <?= AdminSession::actingAdminId() === (int)$admin['id'] ? 'selected' : '' ?>>
+                                        <?= h($admin['display_name'] ?: $admin['rsn']) ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </label>
+                    </form>
+                <?php endif; ?>
                 <form method="post">
                     <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
                     <input type="hidden" name="action" value="logout">

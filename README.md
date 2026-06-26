@@ -118,6 +118,8 @@ When a linked admin signs in with Discord, the app automatically selects that pe
 DISCORD_LOCK_ACTING_ADMIN_TO_LOGIN=true
 ```
 
+When this is enabled, the header no longer shows the acting-admin dropdown. It shows the linked acting admin as a locked pill instead. If it shows **Not linked**, add the logged-in Discord user ID to that person's `treasury_admins.discord_user_id` value before posting treasury actions.
+
 ## Recommended first-use workflow
 
 1. Open **Settings** and create your treasury admins.
