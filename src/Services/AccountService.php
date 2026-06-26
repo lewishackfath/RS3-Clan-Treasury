@@ -61,7 +61,10 @@ final class AccountService
     {
         $sql = 'SELECT ta.*, parent.code AS parent_code, parent.name AS parent_name,
                        app.name AS app_name, app.slug AS app_slug,
-                       COALESCE(usage_counts.ledger_entry_count, 0) AS ledger_entry_count
+                       COALESCE(ledger_usage.ledger_entry_count, 0) AS ledger_entry_count,
+                       COALESCE(payment_usage.payment_request_count, 0) AS payment_request_count,
+                       COALESCE(payout_usage.payout_request_count, 0) AS payout_request_count,
+                       COALESCE(child_usage.child_account_count, 0) AS child_account_count
                 FROM treasury_accounts ta
                 LEFT JOIN treasury_accounts parent ON parent.id = ta.parent_account_id
                 LEFT JOIN treasury_apps app ON app.id = ta.app_id
@@ -69,7 +72,25 @@ final class AccountService
                     SELECT account_id, COUNT(*) AS ledger_entry_count
                     FROM treasury_ledger_entries
                     GROUP BY account_id
-                ) usage_counts ON usage_counts.account_id = ta.id';
+                ) ledger_usage ON ledger_usage.account_id = ta.id
+                LEFT JOIN (
+                    SELECT revenue_account_id AS account_id, COUNT(*) AS payment_request_count
+                    FROM treasury_payment_requests
+                    WHERE revenue_account_id IS NOT NULL
+                    GROUP BY revenue_account_id
+                ) payment_usage ON payment_usage.account_id = ta.id
+                LEFT JOIN (
+                    SELECT expense_account_id AS account_id, COUNT(*) AS payout_request_count
+                    FROM treasury_payout_requests
+                    WHERE expense_account_id IS NOT NULL
+                    GROUP BY expense_account_id
+                ) payout_usage ON payout_usage.account_id = ta.id
+                LEFT JOIN (
+                    SELECT parent_account_id AS account_id, COUNT(*) AS child_account_count
+                    FROM treasury_accounts
+                    WHERE parent_account_id IS NOT NULL
+                    GROUP BY parent_account_id
+                ) child_usage ON child_usage.account_id = ta.id';
         if (!$includeInactive) {
             $sql .= ' WHERE ta.is_active = 1';
         }
@@ -117,6 +138,12 @@ final class AccountService
             throw new \InvalidArgumentException('Account code can only contain letters, numbers, colon, underscore, or dash.');
         }
 
+        $duplicate = Database::pdo()->prepare('SELECT id FROM treasury_accounts WHERE code = :code LIMIT 1');
+        $duplicate->execute(['code' => $code]);
+        if ($duplicate->fetchColumn()) {
+            throw new \InvalidArgumentException('Another ledger account already uses that code.');
+        }
+
         $parentId = $this->accountIdByCode($type === 'income' ? '4000' : '5000');
         $normalBalance = $type === 'income' ? 'credit' : 'debit';
 
@@ -139,6 +166,98 @@ final class AccountService
         AuditService::log('account.created', 'treasury_account', (string)$created['id'], null, $created, null, $actorAdminId);
 
         return $created;
+    }
+
+    public function updatePostingAccount(int $accountId, array $data, int $actorAdminId): array
+    {
+        $before = $this->accountById($accountId);
+        if ((int)$before['is_system'] === 1) {
+            throw new \RuntimeException('System accounts cannot be edited.');
+        }
+        if (!in_array($before['account_type'], ['income', 'expense'], true)) {
+            throw new \RuntimeException('Only revenue and expense accounts can be edited from the admin UI.');
+        }
+
+        $code = strtoupper(trim((string)($data['code'] ?? '')));
+        $name = trim((string)($data['name'] ?? ''));
+        $appId = (int)($data['app_id'] ?? 0);
+
+        if ($code === '' || $name === '') {
+            throw new \InvalidArgumentException('Account code and name are required.');
+        }
+        if (!preg_match('/^[A-Z0-9:_-]{2,50}$/', $code)) {
+            throw new \InvalidArgumentException('Account code can only contain letters, numbers, colon, underscore, or dash.');
+        }
+
+        $duplicate = Database::pdo()->prepare('SELECT id FROM treasury_accounts WHERE code = :code AND id <> :id LIMIT 1');
+        $duplicate->execute(['code' => $code, 'id' => $accountId]);
+        if ($duplicate->fetchColumn()) {
+            throw new \InvalidArgumentException('Another ledger account already uses that code.');
+        }
+
+        $stmt = Database::pdo()->prepare(
+            'UPDATE treasury_accounts
+             SET code = :code, name = :name, app_id = :app_id
+             WHERE id = :id'
+        );
+        $stmt->execute([
+            'code' => $code,
+            'name' => $name,
+            'app_id' => $appId > 0 ? $appId : null,
+            'id' => $accountId,
+        ]);
+
+        $after = $this->accountById($accountId);
+        AuditService::log('account.updated', 'treasury_account', (string)$accountId, $before, $after, null, $actorAdminId);
+
+        return $after;
+    }
+
+    public function deleteUnusedPostingAccount(int $accountId, int $actorAdminId): void
+    {
+        $before = $this->accountById($accountId);
+        if ((int)$before['is_system'] === 1) {
+            throw new \RuntimeException('System accounts cannot be deleted.');
+        }
+        if (!in_array($before['account_type'], ['income', 'expense'], true)) {
+            throw new \RuntimeException('Only revenue and expense accounts can be deleted from the admin UI.');
+        }
+
+        $usage = $this->usageCounts($accountId);
+        if ($usage['total'] > 0) {
+            throw new \RuntimeException('This account has ledger history or request references and must be archived instead of deleted.');
+        }
+
+        $stmt = Database::pdo()->prepare('DELETE FROM treasury_accounts WHERE id = :id');
+        $stmt->execute(['id' => $accountId]);
+
+        AuditService::log('account.deleted', 'treasury_account', (string)$accountId, $before, null, null, $actorAdminId);
+    }
+
+    public function usageCounts(int $accountId): array
+    {
+        $pdo = Database::pdo();
+        $ledger = $pdo->prepare('SELECT COUNT(*) FROM treasury_ledger_entries WHERE account_id = :id');
+        $ledger->execute(['id' => $accountId]);
+
+        $payments = $pdo->prepare('SELECT COUNT(*) FROM treasury_payment_requests WHERE revenue_account_id = :id');
+        $payments->execute(['id' => $accountId]);
+
+        $payouts = $pdo->prepare('SELECT COUNT(*) FROM treasury_payout_requests WHERE expense_account_id = :id');
+        $payouts->execute(['id' => $accountId]);
+
+        $children = $pdo->prepare('SELECT COUNT(*) FROM treasury_accounts WHERE parent_account_id = :id');
+        $children->execute(['id' => $accountId]);
+
+        $counts = [
+            'ledger' => (int)$ledger->fetchColumn(),
+            'payments' => (int)$payments->fetchColumn(),
+            'payouts' => (int)$payouts->fetchColumn(),
+            'children' => (int)$children->fetchColumn(),
+        ];
+        $counts['total'] = array_sum($counts);
+
+        return $counts;
     }
 
     public function setActive(int $accountId, bool $active, int $actorAdminId): array

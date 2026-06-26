@@ -307,3 +307,16 @@ Default posting accounts added:
 - `5210` Runes of Power Prize Payouts
 
 Money-in requests now choose a Revenue account. Money-out requests and manual expenses now choose an Expense account. Existing open requests are assigned sensible defaults by the migration.
+
+## Chart of Accounts lifecycle update
+
+This build adds account editing and safer account lifecycle controls:
+
+- User-created revenue and expense accounts can be edited/renamed.
+- Account code, account name, and default source app can be updated.
+- System accounts remain locked.
+- Accounts with no ledger entries, money-in references, money-out references, or child accounts can be deleted.
+- Accounts with ledger/request history should be archived instead, preserving historical reporting.
+- The RuneScape parchment UI has been slightly darkened to reduce bright white surfaces.
+
+No database migration is required for this update if the Chart of Accounts migration has already been applied.

@@ -291,6 +291,16 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 Flash::add('success', 'Ledger account created.');
                 redirect_to('chart_accounts');
 
+            case 'update_account':
+                (new AccountService())->updatePostingAccount((int)($_POST['account_id'] ?? 0), $_POST, require_acting_admin());
+                Flash::add('success', 'Ledger account updated.');
+                redirect_to('chart_accounts');
+
+            case 'delete_account':
+                (new AccountService())->deleteUnusedPostingAccount((int)($_POST['account_id'] ?? 0), require_acting_admin());
+                Flash::add('success', 'Unused ledger account deleted.');
+                redirect_to('chart_accounts');
+
             case 'archive_account':
                 (new AccountService())->setActive((int)($_POST['account_id'] ?? 0), false, require_acting_admin());
                 Flash::add('success', 'Ledger account archived.');
@@ -1225,7 +1235,7 @@ function render_chart_accounts(array $accounts, array $apps): void
         <div class="notice-card">
             <h2>How these accounts are used</h2>
             <p>Money-in requests credit a revenue account when GP is received by an admin. Money-out requests and manual expenses debit an expense account when GP is paid or owed.</p>
-            <p class="muted">System accounts such as Official Treasury, Admin Held Funds, and Admin Reimbursements Payable remain locked because they control the ledger mechanics.</p>
+            <p class="muted">System accounts remain locked. User-created accounts can be renamed, deleted while unused, or archived once they have ledger/request history.</p>
         </div>
     </section>
 
@@ -1241,31 +1251,70 @@ function render_chart_accounts(array $accounts, array $apps): void
                     <thead><tr><th>Code</th><th>Name</th><th>Parent</th><th>Source app</th><th>Normal balance</th><th>Used</th><th>Status</th><th>Actions</th></tr></thead>
                     <tbody>
                     <?php foreach ($rows as $account): ?>
+                        <?php
+                            $ledgerCount = (int)($account['ledger_entry_count'] ?? 0);
+                            $paymentCount = (int)($account['payment_request_count'] ?? 0);
+                            $payoutCount = (int)($account['payout_request_count'] ?? 0);
+                            $childCount = (int)($account['child_account_count'] ?? 0);
+                            $usageTotal = $ledgerCount + $paymentCount + $payoutCount + $childCount;
+                            $isSystem = (int)$account['is_system'] === 1;
+                            $isActive = (int)$account['is_active'] === 1;
+                            $canManage = !$isSystem && in_array($account['account_type'], ['income', 'expense'], true);
+                        ?>
                         <tr>
                             <td><code><?= h($account['code']) ?></code></td>
-                            <td><strong><?= h($account['name']) ?></strong><?= (int)$account['is_system'] === 1 ? '<small>System account</small>' : '' ?></td>
+                            <td><strong><?= h($account['name']) ?></strong><?= $isSystem ? '<small>System account</small>' : '' ?></td>
                             <td><?= h($account['parent_code'] ?? '—') ?><small><?= h($account['parent_name'] ?? '') ?></small></td>
                             <td><?= h($account['app_name'] ?? 'Any app') ?></td>
                             <td><?= h($account['normal_balance']) ?></td>
-                            <td><?= (int)($account['ledger_entry_count'] ?? 0) ?> ledger lines</td>
-                            <td><?= (int)$account['is_active'] === 1 ? badge('active') : badge('archived') ?></td>
+                            <td>
+                                <?= $ledgerCount ?> ledger lines
+                                <?php if ($paymentCount || $payoutCount || $childCount): ?>
+                                    <small><?= $paymentCount ?> money-in refs · <?= $payoutCount ?> money-out refs<?= $childCount ? ' · ' . $childCount . ' child accounts' : '' ?></small>
+                                <?php endif; ?>
+                            </td>
+                            <td><?= $isActive ? badge('active') : badge('archived') ?></td>
                             <td class="actions-cell">
-                                <?php if ((int)$account['is_system'] === 1): ?>
+                                <?php if (!$canManage): ?>
                                     <span class="muted">Locked</span>
-                                <?php elseif ((int)$account['is_active'] === 1): ?>
-                                    <form method="post" class="row-action" onsubmit="return confirm('Archive this account? Existing ledger history will remain.');">
-                                        <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                                        <input type="hidden" name="action" value="archive_account">
-                                        <input type="hidden" name="account_id" value="<?= (int)$account['id'] ?>">
-                                        <button class="button small" type="submit">Archive</button>
-                                    </form>
                                 <?php else: ?>
-                                    <form method="post" class="row-action">
-                                        <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                                        <input type="hidden" name="action" value="restore_account">
-                                        <input type="hidden" name="account_id" value="<?= (int)$account['id'] ?>">
-                                        <button class="button small primary" type="submit">Restore</button>
-                                    </form>
+                                    <details class="inline-edit">
+                                        <summary class="button small">Edit</summary>
+                                        <form method="post" class="stacked-form compact account-edit-form">
+                                            <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                            <input type="hidden" name="action" value="update_account">
+                                            <input type="hidden" name="account_id" value="<?= (int)$account['id'] ?>">
+                                            <label>Account code <input name="code" value="<?= h($account['code']) ?>" required></label>
+                                            <label>Account name <input name="name" value="<?= h($account['name']) ?>" required></label>
+                                            <label>Default source app <?= app_select($apps, 'app_id', (int)($account['app_id'] ?? 0), true) ?></label>
+                                            <button class="button small primary" type="submit">Save</button>
+                                        </form>
+                                    </details>
+
+                                    <?php if (!$isActive): ?>
+                                        <form method="post" class="row-action">
+                                            <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                            <input type="hidden" name="action" value="restore_account">
+                                            <input type="hidden" name="account_id" value="<?= (int)$account['id'] ?>">
+                                            <button class="button small primary" type="submit">Restore</button>
+                                        </form>
+                                    <?php endif; ?>
+
+                                    <?php if ($usageTotal === 0): ?>
+                                        <form method="post" class="row-action" onsubmit="return confirm('Delete this unused account? This cannot be undone.');">
+                                            <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                            <input type="hidden" name="action" value="delete_account">
+                                            <input type="hidden" name="account_id" value="<?= (int)$account['id'] ?>">
+                                            <button class="button small danger" type="submit">Delete</button>
+                                        </form>
+                                    <?php elseif ($isActive): ?>
+                                        <form method="post" class="row-action" onsubmit="return confirm('Archive this account? Existing ledger history will remain.');">
+                                            <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                            <input type="hidden" name="action" value="archive_account">
+                                            <input type="hidden" name="account_id" value="<?= (int)$account['id'] ?>">
+                                            <button class="button small" type="submit">Archive</button>
+                                        </form>
+                                    <?php endif; ?>
                                 <?php endif; ?>
                             </td>
                         </tr>
