@@ -140,6 +140,7 @@ function nav_items(): array
         'reports' => 'Reports',
         'chart_accounts' => 'Chart of Accounts',
         'users' => 'Users',
+        'source_apps' => 'Source Apps',
         'settings' => 'Settings',
     ];
 }
@@ -161,6 +162,7 @@ function page_title(string $page): string
         'reconciliation_detail' => 'Reconciliation detail',
         'transaction_detail' => 'Transaction detail',
         'reports' => 'Reports',
+        'source_apps' => 'Source Apps & API Keys',
     ][$page] ?? (nav_items()[$page] ?? ucwords(str_replace('_', ' ', $page)));
 }
 
@@ -172,7 +174,8 @@ function page_description(string $page): string
         'payouts' => 'Manage prizes, expenses, admin-paid payouts, and reimbursements.',
         'reconciliation' => 'Move admin-held GP into the official treasury with a clear audit trail.',
         'transactions' => 'Review posted ledger entries and reverse mistakes safely.',
-        'settings' => 'Manage source apps and Discord login status.',
+        'settings' => 'Review Discord login status and app configuration.',
+        'source_apps' => 'Manage source applications, API keys, scopes, and integration access.',
         'reports' => 'Review revenue, expenses, official treasury movement, admin-held funds, and account activity.',
         'chart_accounts' => 'Manage revenue and expense ledger accounts used to categorise GP transactions.',
         'users' => 'Manage treasury users, Discord links, active status, and RSN changes.',
@@ -433,8 +436,48 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 
             case 'create_app':
                 (new AppService())->create($_POST);
-                Flash::add('success', 'Source app saved.');
-                redirect_to('settings');
+                Flash::add('success', 'Source app created.');
+                redirect_to('source_apps');
+
+            case 'update_app':
+                (new AppService())->update((int)($_POST['app_id'] ?? 0), $_POST, require_acting_admin());
+                Flash::add('success', 'Source app updated.');
+                redirect_to('source_apps');
+
+            case 'archive_app':
+                (new AppService())->setActive((int)($_POST['app_id'] ?? 0), false, require_acting_admin());
+                Flash::add('success', 'Source app archived.');
+                redirect_to('source_apps');
+
+            case 'restore_app':
+                (new AppService())->setActive((int)($_POST['app_id'] ?? 0), true, require_acting_admin());
+                Flash::add('success', 'Source app restored.');
+                redirect_to('source_apps');
+
+            case 'delete_app':
+                (new AppService())->deleteIfUnused((int)($_POST['app_id'] ?? 0), require_acting_admin());
+                Flash::add('success', 'Unused source app deleted.');
+                redirect_to('source_apps');
+
+            case 'create_api_key':
+                $createdKey = (new AppService())->createApiKey($_POST, require_acting_admin());
+                Flash::add('success', 'API key created. Copy it now; it will not be shown again: ' . $createdKey['raw_key']);
+                redirect_to('source_apps');
+
+            case 'revoke_api_key':
+                (new AppService())->setApiKeyActive((int)($_POST['api_key_id'] ?? 0), false, require_acting_admin());
+                Flash::add('success', 'API key revoked.');
+                redirect_to('source_apps');
+
+            case 'restore_api_key':
+                (new AppService())->setApiKeyActive((int)($_POST['api_key_id'] ?? 0), true, require_acting_admin());
+                Flash::add('success', 'API key restored.');
+                redirect_to('source_apps');
+
+            case 'delete_api_key':
+                (new AppService())->deleteApiKey((int)($_POST['api_key_id'] ?? 0), require_acting_admin());
+                Flash::add('success', 'Unused API key deleted.');
+                redirect_to('source_apps');
 
             case 'create_account':
                 (new AccountService())->createPostingAccount($_POST, require_acting_admin());
@@ -650,6 +693,8 @@ $query = new TreasuryQueryService();
 $admins = $loggedIn ? $adminService->all(true) : [];
 $allAdmins = $loggedIn ? $adminService->all(false) : [];
 $apps = $loggedIn ? $appService->all(true) : [];
+$allSourceApps = $loggedIn ? $appService->allWithUsage(true) : [];
+$apiKeys = $loggedIn ? $appService->apiKeys() : [];
 $revenueAccounts = $loggedIn ? $accountService->postingAccounts('income') : [];
 $expenseAccounts = $loggedIn ? $accountService->postingAccounts('expense') : [];
 
@@ -793,6 +838,8 @@ $expenseAccounts = $loggedIn ? $accountService->postingAccounts('expense') : [];
         <?php render_chart_accounts((new AccountService())->all(true), $apps); ?>
     <?php elseif ($page === 'users'): ?>
         <?php render_users($allAdmins); ?>
+    <?php elseif ($page === 'source_apps'): ?>
+        <?php render_source_apps($allSourceApps, $apiKeys); ?>
     <?php elseif ($page === 'settings'): ?>
         <?php render_settings($apps); ?>
     <?php else: ?>
@@ -2278,6 +2325,208 @@ function render_account_activity_rows(array $rows): void
     <?php
 }
 
+function render_source_apps(array $apps, array $apiKeys): void
+{
+    $activeApps = array_values(array_filter($apps, fn(array $app): bool => (int)$app['is_active'] === 1 && (string)$app['slug'] !== AppService::SYSTEM_MANUAL_SLUG));
+    ?>
+    <section class="grid two">
+        <div class="card">
+            <div class="section-header">
+                <div>
+                    <h2>Create source app</h2>
+                    <p class="muted">Create one source app for each external integration, such as Bingo, Runes of Power, or future clan apps.</p>
+                </div>
+            </div>
+            <form method="post" class="grid-form">
+                <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                <input type="hidden" name="action" value="create_app">
+                <label>Name <input name="name" placeholder="Bingo" required></label>
+                <label>Slug <input name="slug" placeholder="bingo"></label>
+                <label class="wide">Description <input name="description" placeholder="Creates payment and payout requests for Bingo events"></label>
+                <div class="form-actions"><button class="button primary" type="submit">Create source app</button></div>
+            </form>
+        </div>
+
+        <div class="notice-card">
+            <h2>How source apps work</h2>
+            <p>Manual web entries always use the locked <strong>Manual Entry</strong> source. External apps will use their own source app and API keys once the API layer is enabled.</p>
+            <p class="muted">API keys are shown once only. Store generated keys somewhere secure. The treasury stores only a SHA-256 hash.</p>
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="section-header">
+            <div>
+                <h2>Generate API key</h2>
+                <p class="muted">Generate keys for source apps before wiring the API. Scopes are enforced by the API layer.</p>
+            </div>
+        </div>
+        <?php if (!$activeApps): ?>
+            <p class="empty">Create an active source app before generating API keys.</p>
+        <?php else: ?>
+            <form method="post" class="grid-form">
+                <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                <input type="hidden" name="action" value="create_api_key">
+                <label>Source app
+                    <select name="app_id" required>
+                        <option value="">Select…</option>
+                        <?php foreach ($activeApps as $app): ?>
+                            <option value="<?= (int)$app['id'] ?>"><?= h($app['name']) ?> (<?= h($app['slug']) ?>)</option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+                <label>Key name <input name="key_name" required placeholder="Production integration"></label>
+                <label>Expires on <input type="date" name="expires_at"><small>Optional. Leave blank for no expiry.</small></label>
+                <div class="wide">
+                    <label>Scopes</label>
+                    <div class="scope-grid">
+                        <?php foreach (AppService::AVAILABLE_SCOPES as $scope => $label): ?>
+                            <label class="scope-check"><input type="checkbox" name="scopes[]" value="<?= h($scope) ?>"> <span><code><?= h($scope) ?></code><small><?= h($label) ?></small></span></label>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+                <div class="form-actions"><button class="button primary" type="submit">Generate key</button></div>
+            </form>
+        <?php endif; ?>
+    </section>
+
+    <section class="card">
+        <div class="section-header">
+            <div>
+                <h2>Source apps</h2>
+                <p class="muted">Manage integration sources. Apps with history should be archived rather than deleted.</p>
+            </div>
+            <span class="pill"><?= count($apps) ?> app<?= count($apps) === 1 ? '' : 's' ?></span>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Name</th><th>Slug</th><th>Description</th><th>Usage</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody>
+                <?php foreach ($apps as $app): ?>
+                    <?php
+                        $isManual = (string)$app['slug'] === AppService::SYSTEM_MANUAL_SLUG;
+                        $isActive = (int)$app['is_active'] === 1;
+                        $usageTotal = (int)$app['api_key_count'] + (int)$app['payment_request_count'] + (int)$app['payout_request_count'] + (int)$app['transaction_count'] + (int)$app['account_count'];
+                    ?>
+                    <tr>
+                        <td><strong><?= h($app['name']) ?></strong><?= $isManual ? '<small>Locked internal source</small>' : '' ?></td>
+                        <td><code><?= h($app['slug']) ?></code></td>
+                        <td><?= h($app['description'] ?: '—') ?></td>
+                        <td>
+                            <?= (int)$app['active_api_key_count'] ?> active keys
+                            <small><?= (int)$app['payment_request_count'] ?> money-in · <?= (int)$app['payout_request_count'] ?> money-out · <?= (int)$app['transaction_count'] ?> ledger · <?= (int)$app['account_count'] ?> accounts</small>
+                        </td>
+                        <td><?= $isActive ? badge('active') : badge('archived') ?></td>
+                        <td class="actions-cell">
+                            <?php if ($isManual): ?>
+                                <span class="muted">System</span>
+                            <?php else: ?>
+                                <details class="inline-edit">
+                                    <summary class="button small">Edit</summary>
+                                    <form method="post" class="stacked-form compact account-edit-form">
+                                        <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                        <input type="hidden" name="action" value="update_app">
+                                        <input type="hidden" name="app_id" value="<?= (int)$app['id'] ?>">
+                                        <label>Name <input name="name" value="<?= h($app['name']) ?>" required></label>
+                                        <label>Slug <input name="slug" value="<?= h($app['slug']) ?>" required></label>
+                                        <label>Description <input name="description" value="<?= h($app['description'] ?? '') ?>"></label>
+                                        <button class="button small primary" type="submit">Save source app</button>
+                                    </form>
+                                </details>
+                                <?php if (!$isActive): ?>
+                                    <form method="post" class="row-action">
+                                        <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                        <input type="hidden" name="action" value="restore_app">
+                                        <input type="hidden" name="app_id" value="<?= (int)$app['id'] ?>">
+                                        <button class="button small primary" type="submit">Restore</button>
+                                    </form>
+                                <?php endif; ?>
+                                <?php if ($usageTotal === 0): ?>
+                                    <form method="post" class="row-action" onsubmit="return confirm('Delete this unused source app? This cannot be undone.');">
+                                        <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                        <input type="hidden" name="action" value="delete_app">
+                                        <input type="hidden" name="app_id" value="<?= (int)$app['id'] ?>">
+                                        <button class="button small danger" type="submit">Delete</button>
+                                    </form>
+                                <?php elseif ($isActive): ?>
+                                    <form method="post" class="row-action" onsubmit="return confirm('Archive this source app? Existing history and keys will remain.');">
+                                        <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                        <input type="hidden" name="action" value="archive_app">
+                                        <input type="hidden" name="app_id" value="<?= (int)$app['id'] ?>">
+                                        <button class="button small" type="submit">Archive</button>
+                                    </form>
+                                <?php endif; ?>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if (!$apps): ?><tr><td colspan="6" class="empty">No source apps found.</td></tr><?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="section-header">
+            <div>
+                <h2>API keys</h2>
+                <p class="muted">Only key names and metadata are stored. Raw key values cannot be recovered after generation.</p>
+            </div>
+            <span class="pill"><?= count($apiKeys) ?> key<?= count($apiKeys) === 1 ? '' : 's' ?></span>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Key</th><th>Source app</th><th>Scopes</th><th>Created</th><th>Last used</th><th>Expires</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody>
+                <?php foreach ($apiKeys as $key): ?>
+                    <?php $isActive = (int)$key['is_active'] === 1; ?>
+                    <tr>
+                        <td><strong><?= h($key['key_name']) ?></strong><small>ID <?= (int)$key['id'] ?></small></td>
+                        <td><?= h($key['app_name']) ?><small><code><?= h($key['app_slug']) ?></code></small></td>
+                        <td>
+                            <?php foreach (($key['scopes_array'] ?? []) as $scope): ?>
+                                <code class="scope-code"><?= h($scope) ?></code>
+                            <?php endforeach; ?>
+                        </td>
+                        <td><?= h(local_datetime($key['created_at'])) ?></td>
+                        <td><?= h(local_datetime($key['last_used_at'] ?? null)) ?></td>
+                        <td><?= h(local_datetime($key['expires_at'] ?? null)) ?></td>
+                        <td><?= $isActive ? badge('active') : badge('revoked') ?></td>
+                        <td class="actions-cell">
+                            <?php if ($isActive): ?>
+                                <form method="post" class="row-action" onsubmit="return confirm('Revoke this API key? Existing integrations using it will stop working.');">
+                                    <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                    <input type="hidden" name="action" value="revoke_api_key">
+                                    <input type="hidden" name="api_key_id" value="<?= (int)$key['id'] ?>">
+                                    <button class="button small" type="submit">Revoke</button>
+                                </form>
+                            <?php else: ?>
+                                <form method="post" class="row-action">
+                                    <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                    <input type="hidden" name="action" value="restore_api_key">
+                                    <input type="hidden" name="api_key_id" value="<?= (int)$key['id'] ?>">
+                                    <button class="button small primary" type="submit">Restore</button>
+                                </form>
+                            <?php endif; ?>
+                            <?php if (empty($key['last_used_at'])): ?>
+                                <form method="post" class="row-action" onsubmit="return confirm('Delete this unused API key record?');">
+                                    <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                    <input type="hidden" name="action" value="delete_api_key">
+                                    <input type="hidden" name="api_key_id" value="<?= (int)$key['id'] ?>">
+                                    <button class="button small danger" type="submit">Delete</button>
+                                </form>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if (!$apiKeys): ?><tr><td colspan="8" class="empty">No API keys have been generated yet.</td></tr><?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+    </section>
+    <?php
+}
+
 function render_settings(array $apps): void
 {
     ?>
@@ -2294,30 +2543,7 @@ function render_settings(array $apps): void
             <div><span>Role IDs</span><strong><?= h(Env::get('DISCORD_ADMIN_ROLE_IDS', '') ?: 'Linked users / owner IDs only') ?></strong></div>
         </div>
         <p class="muted"><a href="<?= h(url_for('users')) ?>">Open Users</a> to manage treasury users, RSNs, Discord links, and active status.</p>
-    </section>
-
-    <section class="card">
-        <div class="section-header">
-            <div>
-                <h2>Source apps</h2>
-                <p class="muted">Source apps are used by API integrations. Manual web entries automatically use the internal Manual Entry app.</p>
-            </div>
-        </div>
-        <form method="post" class="grid-form">
-            <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-            <input type="hidden" name="action" value="create_app">
-            <label>Name <input name="name" placeholder="Bingo" required></label>
-            <label>Slug <input name="slug" placeholder="bingo"></label>
-            <label class="wide">Description <input name="description" placeholder="Optional"></label>
-            <div class="form-actions"><button class="button primary" type="submit">Save source app</button></div>
-        </form>
-        <div class="table-wrap">
-            <table>
-                <thead><tr><th>Name</th><th>Slug</th><th>Description</th></tr></thead>
-                <tbody><?php foreach ($apps as $app): ?><tr><td><?= h($app['name']) ?></td><td><code><?= h($app['slug']) ?></code></td><td><?= h($app['description'] ?: '—') ?></td></tr><?php endforeach; ?></tbody>
-            </table>
-        </div>
-        <p class="muted">API keys remain CLI-managed for now.</p>
+        <p class="muted"><a href="<?= h(url_for('source_apps')) ?>">Open Source Apps</a> to manage integrations and API keys.</p>
     </section>
     <?php
 }

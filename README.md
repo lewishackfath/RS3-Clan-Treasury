@@ -382,3 +382,24 @@ Included reports:
 - Account activity: detailed debit/credit activity for any ledger account.
 
 No database migration is required for this update.
+
+## Source Apps & API Keys
+
+This build adds a dedicated **Source Apps** page for integration management before the API layer is enabled.
+
+The page supports:
+
+- Creating source apps for external integrations such as Bingo and Runes of Power.
+- Editing source app name, slug, and description.
+- Archiving/restoring source apps with history.
+- Deleting source apps only when they have no API keys, requests, ledger transactions, or linked accounts.
+- Generating API keys for active source apps.
+- Storing only SHA-256 hashes of API keys.
+- Displaying generated API keys once only.
+- Revoking/restoring API keys.
+- Deleting API keys that have never been used.
+- Showing last-used and expiry metadata.
+
+`Manual Entry` is a locked internal source app. Manual web transactions always use this source and API keys cannot be generated for it.
+
+No database migration is required if the DB bootstrap system is enabled, because the required `treasury_apps` and `treasury_api_keys` tables are already part of the bootstrap schema.

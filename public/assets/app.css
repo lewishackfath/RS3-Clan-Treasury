@@ -532,3 +532,35 @@ tr:hover td { background: rgba(255, 248, 226, .22); }
 .report-net-card {
     border-color: var(--border-strong);
 }
+
+.scope-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .55rem;
+    margin-top: .4rem;
+}
+.scope-check {
+    display: flex;
+    align-items: flex-start;
+    gap: .55rem;
+    padding: .65rem;
+    border: 1px solid var(--border);
+    border-radius: .75rem;
+    background: var(--surface-soft);
+    color: var(--text);
+}
+.scope-check input {
+    width: auto;
+    margin: .22rem 0 0;
+}
+.scope-check span,
+.scope-check small {
+    display: block;
+}
+.scope-code {
+    display: inline-block;
+    margin: .08rem .12rem .08rem 0;
+}
+@media (max-width: 760px) {
+    .scope-grid { grid-template-columns: 1fr; }
+}
