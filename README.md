@@ -356,3 +356,16 @@ The database bootstrap creates and keeps the RSN history table in sync automatic
 ## First Discord sign-in RSN setup
 
 When a Discord-authorised user signs in for the first time and their Discord user ID is not yet linked to a treasury user, the app now forces them through a short RSN setup page before they can access the treasury. This creates their treasury user, links their Discord user ID, records their current RSN, and sets them as the acting admin.
+
+## Transaction detail pages
+
+This build adds drill-down pages for key treasury records:
+
+- Money In request details
+- Money Out request details
+- Reconciliation details
+- Ledger transaction details
+
+The list pages now link through to the relevant detail pages. Detail pages show the request/reconciliation summary, linked ledger transactions, ledger lines, audit events, and safe correction/reversal controls where applicable.
+
+No database migration is required for this update.

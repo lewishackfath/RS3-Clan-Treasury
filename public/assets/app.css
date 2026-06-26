@@ -423,3 +423,83 @@ tr:hover td { background: rgba(255, 248, 226, .22); }
 .history-row small { display: block; margin-top: .2rem; color: var(--muted); }
 .badge-active, .badge-current { color: var(--green); border-color: #b9d7a7; background: var(--green-soft); }
 .badge-archived { color: var(--muted); border-color: var(--border); background: var(--surface-soft); }
+
+.detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+}
+.detail-header h2 { margin: .35rem 0 .2rem; font-size: 1.35rem; }
+.detail-header-actions { display: grid; justify-items: end; gap: .45rem; }
+.detail-amount { font-size: 1.55rem; }
+.detail-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .75rem;
+}
+.detail-grid div {
+    border: 1px solid var(--border);
+    border-radius: .75rem;
+    background: var(--surface-soft);
+    padding: .7rem;
+    min-width: 0;
+}
+.detail-grid span {
+    display: block;
+    color: var(--muted);
+    font-size: .78rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .035em;
+    margin-bottom: .25rem;
+}
+.detail-grid strong { overflow-wrap: anywhere; }
+.detail-actions { display: grid; gap: .65rem; }
+.detail-actions .row-action { display: block; }
+.detail-actions .button { width: 100%; text-align: center; }
+.detail-json { margin-top: .85rem; }
+.detail-json summary { margin-bottom: .5rem; }
+.detail-json pre, .audit-json-grid pre {
+    white-space: pre-wrap;
+    overflow-x: auto;
+    background: #efe4c8;
+    border: 1px solid var(--border);
+    border-radius: .65rem;
+    padding: .75rem;
+    color: var(--text);
+    font-size: .82rem;
+}
+.audit-list { display: grid; gap: .65rem; }
+.audit-card {
+    border: 1px solid var(--border);
+    border-radius: .85rem;
+    background: var(--surface-soft);
+    overflow: hidden;
+}
+.audit-card summary {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: .8rem .9rem;
+    margin: 0;
+}
+.audit-card summary small { display: block; color: var(--muted); margin-top: .15rem; }
+.audit-json-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .75rem;
+    padding: 0 .9rem .9rem;
+}
+.audit-json-grid span {
+    display: block;
+    color: var(--muted);
+    font-size: .78rem;
+    font-weight: 800;
+    margin-bottom: .25rem;
+}
+@media (max-width: 760px) {
+    .detail-header { display: block; }
+    .detail-header-actions { justify-items: start; margin-top: .75rem; }
+    .detail-grid, .audit-json-grid { grid-template-columns: 1fr; }
+}

@@ -288,6 +288,128 @@ final class TreasuryQueryService
         return $grouped;
     }
 
+
+
+    public function payoutRequestByUuid(string $uuid): ?array
+    {
+        $stmt = Database::pdo()->prepare(
+            'SELECT pr.*, a.name AS app_name, a.slug AS app_slug,
+                    admin.display_name AS paid_by_display_name, admin.rsn AS paid_by_rsn,
+                    expense.code AS expense_account_code, expense.name AS expense_account_name
+             FROM treasury_payout_requests pr
+             JOIN treasury_apps a ON a.id = pr.app_id
+             LEFT JOIN treasury_admins admin ON admin.id = pr.paid_by_admin_id
+             LEFT JOIN treasury_accounts expense ON expense.id = pr.expense_account_id
+             WHERE pr.request_uuid = :uuid LIMIT 1'
+        );
+        $stmt->execute(['uuid' => $uuid]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ?: null;
+    }
+
+    public function reconciliationByUuid(string $uuid): ?array
+    {
+        $stmt = Database::pdo()->prepare(
+            'SELECT r.*, t.transaction_uuid,
+                    from_admin.display_name AS from_admin_display_name, from_admin.rsn AS from_admin_rsn,
+                    created_admin.display_name AS created_by_display_name, created_admin.rsn AS created_by_rsn,
+                    completed_admin.display_name AS completed_by_display_name, completed_admin.rsn AS completed_by_rsn,
+                    COUNT(pr.id) AS linked_payment_count
+             FROM treasury_reconciliations r
+             LEFT JOIN treasury_transactions t ON t.id = r.transaction_id
+             JOIN treasury_admins from_admin ON from_admin.id = r.from_admin_id
+             LEFT JOIN treasury_admins created_admin ON created_admin.id = r.created_by_admin_id
+             LEFT JOIN treasury_admins completed_admin ON completed_admin.id = r.completed_by_admin_id
+             LEFT JOIN treasury_payment_requests pr ON pr.reconciliation_transaction_id = r.transaction_id
+             WHERE r.reconciliation_uuid = :uuid
+             GROUP BY r.id, t.transaction_uuid, from_admin.display_name, from_admin.rsn, created_admin.display_name, created_admin.rsn, completed_admin.display_name, completed_admin.rsn
+             LIMIT 1'
+        );
+        $stmt->execute(['uuid' => $uuid]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            return null;
+        }
+        $linked = $this->paymentRequestsByReconciliationTransaction([(int)($row['transaction_id'] ?? 0)]);
+        $row['linked_payments'] = $linked[(int)($row['transaction_id'] ?? 0)] ?? [];
+        return $row;
+    }
+
+    public function transactionByUuid(string $uuid): ?array
+    {
+        $stmt = Database::pdo()->prepare(
+            'SELECT DISTINCT t.*, a.name AS app_name, admin.display_name AS posted_by_display_name, admin.rsn AS posted_by_rsn,
+                    rev.transaction_uuid AS reversal_uuid,
+                    related.transaction_uuid AS related_transaction_uuid
+             FROM treasury_transactions t
+             LEFT JOIN treasury_apps a ON a.id = t.app_id
+             LEFT JOIN treasury_admins admin ON admin.id = t.posted_by_admin_id
+             LEFT JOIN treasury_transactions rev ON rev.related_transaction_id = t.id AND rev.transaction_type = "reversal" AND rev.status = "posted"
+             LEFT JOIN treasury_transactions related ON related.id = t.related_transaction_id
+             WHERE t.transaction_uuid = :uuid LIMIT 1'
+        );
+        $stmt->execute(['uuid' => $uuid]);
+        $transaction = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$transaction) {
+            return null;
+        }
+        $lines = $this->ledgerLinesForTransactions([(int)$transaction['id']]);
+        $transaction['lines'] = $lines[(int)$transaction['id']] ?? [];
+        return $transaction;
+    }
+
+    public function transactionsByIds(array $transactionIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $transactionIds))));
+        if (!$ids) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = Database::pdo()->prepare(
+            'SELECT DISTINCT t.*, a.name AS app_name, admin.display_name AS posted_by_display_name, admin.rsn AS posted_by_rsn,
+                    rev.transaction_uuid AS reversal_uuid,
+                    related.transaction_uuid AS related_transaction_uuid
+             FROM treasury_transactions t
+             LEFT JOIN treasury_apps a ON a.id = t.app_id
+             LEFT JOIN treasury_admins admin ON admin.id = t.posted_by_admin_id
+             LEFT JOIN treasury_transactions rev ON rev.related_transaction_id = t.id AND rev.transaction_type = "reversal" AND rev.status = "posted"
+             LEFT JOIN treasury_transactions related ON related.id = t.related_transaction_id
+             WHERE t.id IN (' . $placeholders . ')
+             ORDER BY t.occurred_at ASC, t.id ASC'
+        );
+        $stmt->execute($ids);
+        $transactions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if (!$transactions) {
+            return [];
+        }
+        $lines = $this->ledgerLinesForTransactions(array_map(fn(array $row): int => (int)$row['id'], $transactions));
+        $byId = [];
+        foreach ($transactions as $transaction) {
+            $transaction['lines'] = $lines[(int)$transaction['id']] ?? [];
+            $byId[(int)$transaction['id']] = $transaction;
+        }
+        return $byId;
+    }
+
+    public function auditLogForEntity(string $entityType, string $entityId, int $limit = 30): array
+    {
+        $stmt = Database::pdo()->prepare(
+            'SELECT audit.*, admin.display_name AS actor_admin_name, admin.rsn AS actor_admin_rsn, app.name AS actor_app_name
+             FROM treasury_audit_log audit
+             LEFT JOIN treasury_admins admin ON admin.id = audit.actor_admin_id
+             LEFT JOIN treasury_apps app ON app.id = audit.actor_app_id
+             WHERE audit.entity_type = :entity_type AND audit.entity_id = :entity_id
+             ORDER BY audit.created_at DESC
+             LIMIT ' . max(1, min(100, $limit))
+        );
+        $stmt->execute([
+            'entity_type' => $entityType,
+            'entity_id' => $entityId,
+        ]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
     public function auditLog(int $limit = 50): array
     {
         $stmt = Database::pdo()->query(

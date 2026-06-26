@@ -85,6 +85,10 @@ function page_title(string $page): string
         'chart_accounts' => 'Chart of Accounts',
         'users' => 'Users',
         'setup_rsn' => 'Set your RSN',
+        'payment_detail' => 'Money-in detail',
+        'payout_detail' => 'Money-out detail',
+        'reconciliation_detail' => 'Reconciliation detail',
+        'transaction_detail' => 'Transaction detail',
     ][$page] ?? (nav_items()[$page] ?? ucwords(str_replace('_', ' ', $page)));
 }
 
@@ -106,6 +110,10 @@ function page_description(string $page): string
         'new_treasury_expense' => 'Record GP paid directly from the official treasury.',
         'new_admin_paid_expense' => 'Record an expense paid personally by an admin so it can be reimbursed later.',
         'new_admin_reimbursement' => 'Record a manual reimbursement from the official treasury to an admin.',
+        'payment_detail' => 'Inspect the money-in request, linked ledger transactions, and audit trail.',
+        'payout_detail' => 'Inspect the money-out request, linked ledger transactions, and audit trail.',
+        'reconciliation_detail' => 'Inspect the reconciliation, included payments, ledger movement, and audit trail.',
+        'transaction_detail' => 'Inspect the posted ledger transaction, lines, related records, and reversal options.',
     ][$page] ?? 'Standalone treasury control for clan GP.';
 }
 
@@ -680,8 +688,12 @@ $expenseAccounts = $loggedIn ? $accountService->postingAccounts('expense') : [];
         <?php render_dashboard($query, $admins); ?>
     <?php elseif ($page === 'payments'): ?>
         <?php render_payments($query); ?>
+    <?php elseif ($page === 'payment_detail'): ?>
+        <?php render_payment_detail($query); ?>
     <?php elseif ($page === 'payouts'): ?>
         <?php render_payouts($query, $admins); ?>
+    <?php elseif ($page === 'payout_detail'): ?>
+        <?php render_payout_detail($query); ?>
     <?php elseif ($page === 'new_payment'): ?>
         <?php render_new_payment($revenueAccounts); ?>
     <?php elseif ($page === 'new_payout'): ?>
@@ -696,8 +708,12 @@ $expenseAccounts = $loggedIn ? $accountService->postingAccounts('expense') : [];
         <?php render_new_admin_reimbursement(); ?>
     <?php elseif ($page === 'reconciliation'): ?>
         <?php render_reconciliation($query, $admins); ?>
+    <?php elseif ($page === 'reconciliation_detail'): ?>
+        <?php render_reconciliation_detail($query); ?>
     <?php elseif ($page === 'transactions'): ?>
         <?php render_transactions($query, $apps); ?>
+    <?php elseif ($page === 'transaction_detail'): ?>
+        <?php render_transaction_detail($query); ?>
     <?php elseif ($page === 'chart_accounts'): ?>
         <?php render_chart_accounts((new AccountService())->all(true), $apps); ?>
     <?php elseif ($page === 'users'): ?>
@@ -916,12 +932,13 @@ function render_payments(TreasuryQueryService $query): void
                     <tr>
                         <td><?= h(local_datetime($row['created_at'])) ?></td>
                         <td><?= h($row['player_rsn']) ?></td>
-                        <td><?= h($row['description']) ?></td>
+                        <td><a href="<?= h(url_for('payment_detail', ['uuid' => $row['request_uuid']])) ?>"><strong><?= h($row['description']) ?></strong></a><small><?= h($row['request_uuid']) ?></small></td>
                         <td><code><?= h($row['revenue_account_code'] ?? '—') ?></code><small><?= h($row['revenue_account_name'] ?? '') ?></small></td>
                         <td class="right amount"><?= h(GP::format($row['amount'])) ?></td>
                         <td><?= badge($row['status']) ?></td>
                         <td><?= h($row['received_by_display_name'] ?: $row['received_by_rsn'] ?: '—') ?></td>
                         <td class="actions-cell">
+                            <a class="button small" href="<?= h(url_for('payment_detail', ['uuid' => $row['request_uuid']])) ?>">View</a>
                             <?php if ($row['status'] === 'pending'): ?>
                                 <form method="post" class="row-action">
                                     <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
@@ -985,12 +1002,13 @@ function render_payouts(TreasuryQueryService $query, array $admins): void
                     <tr>
                         <td><?= h(local_datetime($row['created_at'])) ?></td>
                         <td><?= h($row['payee_rsn']) ?></td>
-                        <td><?= h($row['description']) ?></td>
+                        <td><a href="<?= h(url_for('payout_detail', ['uuid' => $row['request_uuid']])) ?>"><strong><?= h($row['description']) ?></strong></a><small><?= h($row['request_uuid']) ?></small></td>
                         <td><code><?= h($row['expense_account_code'] ?? '—') ?></code><small><?= h($row['expense_account_name'] ?? '') ?></small></td>
                         <td class="right amount"><?= h(GP::format($row['amount'])) ?></td>
                         <td><?= badge($row['status']) ?></td>
                         <td><?= h($row['paid_by_display_name'] ?: $row['paid_by_rsn'] ?: '—') ?></td>
                         <td class="actions-cell">
+                            <a class="button small" href="<?= h(url_for('payout_detail', ['uuid' => $row['request_uuid']])) ?>">View</a>
                             <?php if ($row['status'] === 'pending'): ?>
                                 <form method="post" class="row-action"><input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>"><input type="hidden" name="action" value="payout_from_treasury"><input type="hidden" name="request_uuid" value="<?= h($row['request_uuid']) ?>"><button class="button small primary" type="submit">Pay from treasury</button></form>
                                 <form method="post" class="row-action"><input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>"><input type="hidden" name="action" value="payout_by_admin"><input type="hidden" name="request_uuid" value="<?= h($row['request_uuid']) ?>"><button class="button small" type="submit">Admin paid</button></form>
@@ -1185,7 +1203,7 @@ function render_reconciliation(TreasuryQueryService $query, array $admins): void
                                 <td><?= h(local_datetime($row['received_at'])) ?></td>
                                 <td><?= h($row['received_by_display_name'] ?: $row['received_by_rsn']) ?></td>
                                 <td><?= h($row['player_rsn']) ?></td>
-                                <td><?= h($row['description']) ?></td>
+                                <td><a href="<?= h(url_for('payment_detail', ['uuid' => $row['request_uuid']])) ?>"><?= h($row['description']) ?></a></td>
                                 <td class="right amount"><?= h(GP::format($row['amount'])) ?></td>
                             </tr>
                         <?php endforeach; ?>
@@ -1211,14 +1229,14 @@ function render_reconciliation(TreasuryQueryService $query, array $admins): void
                     <details class="transaction-card">
                         <summary>
                             <span>
-                                <strong><?= h($recon['from_admin_display_name'] ?: $recon['from_admin_rsn']) ?> reconciled <?= h(GP::format($recon['amount'])) ?></strong>
+                                <strong><a href="<?= h(url_for('reconciliation_detail', ['uuid' => $recon['reconciliation_uuid']])) ?>"><?= h($recon['from_admin_display_name'] ?: $recon['from_admin_rsn']) ?> reconciled <?= h(GP::format($recon['amount'])) ?></a></strong>
                                 <small><?= h(local_datetime($recon['completed_at'] ?: $recon['created_at'])) ?> · <?= h($recon['linked_payment_count']) ?> linked payment<?= (int)$recon['linked_payment_count'] === 1 ? '' : 's' ?></small>
                             </span>
                             <span><?= badge($recon['status']) ?></span>
                         </summary>
                         <div class="ledger-lines">
                             <?php if (!empty($recon['notes'])): ?><p class="muted"><?= h($recon['notes']) ?></p><?php endif; ?>
-                            <?php if (!empty($recon['transaction_uuid'])): ?><p class="muted">Ledger transaction: <code><?= h($recon['transaction_uuid']) ?></code></p><?php endif; ?>
+                            <?php if (!empty($recon['transaction_uuid'])): ?><p class="muted">Ledger transaction: <a href="<?= h(url_for('transaction_detail', ['uuid' => $recon['transaction_uuid']])) ?>"><code><?= h($recon['transaction_uuid']) ?></code></a></p><?php endif; ?>
                             <?php if (empty($recon['linked_payments'])): ?>
                                 <p class="muted">No linked payment requests were recorded for this reconciliation.</p>
                             <?php else: ?>
@@ -1229,7 +1247,7 @@ function render_reconciliation(TreasuryQueryService $query, array $admins): void
                                         <tr>
                                             <td><?= h(local_datetime($payment['received_at'])) ?></td>
                                             <td><?= h($payment['player_rsn']) ?></td>
-                                            <td><?= h($payment['description']) ?></td>
+                                            <td><a href="<?= h(url_for('payment_detail', ['uuid' => $payment['request_uuid']])) ?>"><?= h($payment['description']) ?></a></td>
                                             <td class="right amount"><?= h(GP::format($payment['amount'])) ?></td>
                                         </tr>
                                     <?php endforeach; ?>
@@ -1270,6 +1288,429 @@ function render_transactions(TreasuryQueryService $query, array $apps): void
             <button class="button" type="submit">Filter</button>
         </form>
         <?php render_transaction_table($transactions); ?>
+    </section>
+    <?php
+}
+
+
+function render_payment_detail(TreasuryQueryService $query): void
+{
+    $uuid = (string)($_GET['uuid'] ?? '');
+    $payment = $uuid !== '' ? $query->paymentRequestByUuid($uuid) : null;
+    if (!$payment) {
+        render_not_found('Money-in request not found', 'payments');
+        return;
+    }
+
+    $linkedTransactions = $query->transactionsByIds([
+        (int)($payment['received_transaction_id'] ?? 0),
+        (int)($payment['reconciliation_transaction_id'] ?? 0),
+    ]);
+    $audit = $query->auditLogForEntity('treasury_payment_request', $payment['request_uuid']);
+    ?>
+    <section class="detail-header card">
+        <div>
+            <a class="muted" href="<?= h(url_for('payments')) ?>">← Back to Money in</a>
+            <h2><?= h($payment['description']) ?></h2>
+            <p class="muted">Money received from <strong><?= h($payment['player_rsn']) ?></strong>.</p>
+        </div>
+        <div class="detail-header-actions">
+            <?= badge($payment['status']) ?>
+            <span class="amount detail-amount"><?= h(GP::format($payment['amount'])) ?></span>
+        </div>
+    </section>
+
+    <section class="grid two">
+        <div class="card">
+            <h2>Request details</h2>
+            <div class="detail-grid">
+                <div><span>Payer</span><strong><?= h($payment['player_rsn']) ?></strong></div>
+                <div><span>Amount</span><strong><?= h(GP::format($payment['amount'])) ?></strong></div>
+                <div><span>Revenue account</span><strong><code><?= h($payment['revenue_account_code'] ?? '—') ?></code> <?= h($payment['revenue_account_name'] ?? '') ?></strong></div>
+                <div><span>Status</span><strong><?= badge($payment['status']) ?></strong></div>
+                <div><span>Created</span><strong><?= h(local_datetime($payment['created_at'])) ?></strong></div>
+                <div><span>Received</span><strong><?= h(local_datetime($payment['received_at'] ?? null)) ?></strong></div>
+                <div><span>Received by</span><strong><?= h($payment['received_by_display_name'] ?: $payment['received_by_rsn'] ?: '—') ?></strong></div>
+                <div><span>Reconciled</span><strong><?= h(local_datetime($payment['reconciled_at'] ?? null)) ?></strong></div>
+            </div>
+            <?php if (!empty($payment['metadata'])): ?>
+                <details class="detail-json"><summary>Metadata</summary><pre><?= h(pretty_json($payment['metadata'])) ?></pre></details>
+            <?php endif; ?>
+        </div>
+
+        <div class="card">
+            <h2>Available actions</h2>
+            <div class="detail-actions">
+                <?php if ($payment['status'] === 'pending'): ?>
+                    <form method="post" class="stacked-form compact">
+                        <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                        <input type="hidden" name="action" value="receive_payment_request">
+                        <input type="hidden" name="request_uuid" value="<?= h($payment['request_uuid']) ?>">
+                        <button class="button primary" type="submit">Mark as received by acting admin</button>
+                    </form>
+                    <form method="post" class="stacked-form compact" onsubmit="return confirm('Cancel this pending payment request?');">
+                        <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                        <input type="hidden" name="action" value="cancel_payment_request">
+                        <input type="hidden" name="request_uuid" value="<?= h($payment['request_uuid']) ?>">
+                        <button class="button danger" type="submit">Cancel request</button>
+                    </form>
+                <?php elseif ($payment['status'] === 'received_by_admin'): ?>
+                    <a class="button primary" href="<?= h(url_for('reconciliation', ['admin_id' => (int)($payment['received_by_admin_id'] ?? 0)])) ?>">Reconcile this admin’s received funds</a>
+                <?php else: ?>
+                    <p class="muted">No direct actions are available for this request state.</p>
+                <?php endif; ?>
+            </div>
+        </div>
+    </section>
+
+    <?php render_linked_transactions($linkedTransactions, 'No ledger transactions have been posted for this money-in request yet.'); ?>
+    <?php render_audit_log($audit, 'No audit events found for this money-in request.'); ?>
+    <?php
+}
+
+function render_payout_detail(TreasuryQueryService $query): void
+{
+    $uuid = (string)($_GET['uuid'] ?? '');
+    $payout = $uuid !== '' ? $query->payoutRequestByUuid($uuid) : null;
+    if (!$payout) {
+        render_not_found('Money-out request not found', 'payouts');
+        return;
+    }
+
+    $linkedTransactions = $query->transactionsByIds([
+        (int)($payout['paid_transaction_id'] ?? 0),
+        (int)($payout['reimbursement_transaction_id'] ?? 0),
+    ]);
+    $audit = $query->auditLogForEntity('treasury_payout_request', $payout['request_uuid']);
+    ?>
+    <section class="detail-header card">
+        <div>
+            <a class="muted" href="<?= h(url_for('payouts')) ?>">← Back to Money out</a>
+            <h2><?= h($payout['description']) ?></h2>
+            <p class="muted">Money paid to <strong><?= h($payout['payee_rsn']) ?></strong>.</p>
+        </div>
+        <div class="detail-header-actions">
+            <?= badge($payout['status']) ?>
+            <span class="amount detail-amount"><?= h(GP::format($payout['amount'])) ?></span>
+        </div>
+    </section>
+
+    <section class="grid two">
+        <div class="card">
+            <h2>Request details</h2>
+            <div class="detail-grid">
+                <div><span>Payee</span><strong><?= h($payout['payee_rsn']) ?></strong></div>
+                <div><span>Amount</span><strong><?= h(GP::format($payout['amount'])) ?></strong></div>
+                <div><span>Expense account</span><strong><code><?= h($payout['expense_account_code'] ?? '—') ?></code> <?= h($payout['expense_account_name'] ?? '') ?></strong></div>
+                <div><span>Status</span><strong><?= badge($payout['status']) ?></strong></div>
+                <div><span>Created</span><strong><?= h(local_datetime($payout['created_at'])) ?></strong></div>
+                <div><span>Paid</span><strong><?= h(local_datetime($payout['paid_at'] ?? null)) ?></strong></div>
+                <div><span>Admin</span><strong><?= h($payout['paid_by_display_name'] ?: $payout['paid_by_rsn'] ?: '—') ?></strong></div>
+                <div><span>Reimbursed</span><strong><?= h(local_datetime($payout['reimbursed_at'] ?? null)) ?></strong></div>
+            </div>
+            <?php if (!empty($payout['metadata'])): ?>
+                <details class="detail-json"><summary>Metadata</summary><pre><?= h(pretty_json($payout['metadata'])) ?></pre></details>
+            <?php endif; ?>
+        </div>
+
+        <div class="card">
+            <h2>Available actions</h2>
+            <div class="detail-actions">
+                <?php if ($payout['status'] === 'pending'): ?>
+                    <form method="post" class="row-action"><input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>"><input type="hidden" name="action" value="payout_from_treasury"><input type="hidden" name="request_uuid" value="<?= h($payout['request_uuid']) ?>"><button class="button primary" type="submit">Pay from treasury</button></form>
+                    <form method="post" class="row-action"><input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>"><input type="hidden" name="action" value="payout_by_admin"><input type="hidden" name="request_uuid" value="<?= h($payout['request_uuid']) ?>"><button class="button" type="submit">Admin paid</button></form>
+                    <form method="post" class="row-action" onsubmit="return confirm('Cancel this pending payout request?');"><input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>"><input type="hidden" name="action" value="cancel_payout_request"><input type="hidden" name="request_uuid" value="<?= h($payout['request_uuid']) ?>"><button class="button danger" type="submit">Cancel request</button></form>
+                <?php elseif ($payout['status'] === 'paid_by_admin'): ?>
+                    <form method="post" class="row-action"><input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>"><input type="hidden" name="action" value="reimburse_payout"><input type="hidden" name="request_uuid" value="<?= h($payout['request_uuid']) ?>"><button class="button primary" type="submit">Reimburse admin</button></form>
+                <?php else: ?>
+                    <p class="muted">No direct actions are available for this request state.</p>
+                <?php endif; ?>
+            </div>
+        </div>
+    </section>
+
+    <?php render_linked_transactions($linkedTransactions, 'No ledger transactions have been posted for this money-out request yet.'); ?>
+    <?php render_audit_log($audit, 'No audit events found for this money-out request.'); ?>
+    <?php
+}
+
+function render_reconciliation_detail(TreasuryQueryService $query): void
+{
+    $uuid = (string)($_GET['uuid'] ?? '');
+    $recon = $uuid !== '' ? $query->reconciliationByUuid($uuid) : null;
+    if (!$recon) {
+        render_not_found('Reconciliation not found', 'reconciliation');
+        return;
+    }
+
+    $linkedTransactions = $query->transactionsByIds([(int)($recon['transaction_id'] ?? 0)]);
+    $audit = $query->auditLogForEntity('treasury_reconciliation', $recon['reconciliation_uuid']);
+    ?>
+    <section class="detail-header card">
+        <div>
+            <a class="muted" href="<?= h(url_for('reconciliation', ['admin_id' => (int)$recon['from_admin_id']])) ?>">← Back to reconciliation</a>
+            <h2><?= h($recon['from_admin_display_name'] ?: $recon['from_admin_rsn']) ?> reconciled <?= h(GP::format($recon['amount'])) ?></h2>
+            <p class="muted">Admin-held GP moved into the official treasury.</p>
+        </div>
+        <div class="detail-header-actions">
+            <?= badge($recon['status']) ?>
+            <span class="amount detail-amount"><?= h(GP::format($recon['amount'])) ?></span>
+        </div>
+    </section>
+
+    <section class="card">
+        <h2>Reconciliation details</h2>
+        <div class="detail-grid">
+            <div><span>From admin</span><strong><?= h($recon['from_admin_display_name'] ?: $recon['from_admin_rsn']) ?></strong></div>
+            <div><span>Amount</span><strong><?= h(GP::format($recon['amount'])) ?></strong></div>
+            <div><span>Completed by</span><strong><?= h($recon['completed_by_display_name'] ?: $recon['completed_by_rsn'] ?: '—') ?></strong></div>
+            <div><span>Completed</span><strong><?= h(local_datetime($recon['completed_at'] ?? null)) ?></strong></div>
+            <div><span>Linked payments</span><strong><?= h($recon['linked_payment_count']) ?></strong></div>
+            <div><span>Ledger transaction</span><strong><?php if (!empty($recon['transaction_uuid'])): ?><a href="<?= h(url_for('transaction_detail', ['uuid' => $recon['transaction_uuid']])) ?>"><code><?= h($recon['transaction_uuid']) ?></code></a><?php else: ?>—<?php endif; ?></strong></div>
+        </div>
+        <?php if (!empty($recon['notes'])): ?><p class="notice-inline"><?= h($recon['notes']) ?></p><?php endif; ?>
+    </section>
+
+    <section class="card">
+        <div class="section-header"><h2>Included payments</h2><span class="pill"><?= count($recon['linked_payments'] ?? []) ?> payments</span></div>
+        <?php if (empty($recon['linked_payments'])): ?>
+            <p class="empty">No linked payment requests were recorded for this reconciliation.</p>
+        <?php else: ?>
+            <div class="table-wrap"><table>
+                <thead><tr><th>Received</th><th>Payer</th><th>Description</th><th class="right">Amount</th></tr></thead>
+                <tbody>
+                <?php foreach ($recon['linked_payments'] as $payment): ?>
+                    <tr>
+                        <td><?= h(local_datetime($payment['received_at'])) ?></td>
+                        <td><?= h($payment['player_rsn']) ?></td>
+                        <td><a href="<?= h(url_for('payment_detail', ['uuid' => $payment['request_uuid']])) ?>"><?= h($payment['description']) ?></a></td>
+                        <td class="right amount"><?= h(GP::format($payment['amount'])) ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table></div>
+        <?php endif; ?>
+    </section>
+
+    <?php render_linked_transactions($linkedTransactions, 'No ledger transaction is linked to this reconciliation.'); ?>
+    <?php render_audit_log($audit, 'No audit events found for this reconciliation.'); ?>
+    <?php
+}
+
+function render_transaction_detail(TreasuryQueryService $query): void
+{
+    $uuid = (string)($_GET['uuid'] ?? '');
+    $transaction = $uuid !== '' ? $query->transactionByUuid($uuid) : null;
+    if (!$transaction) {
+        render_not_found('Ledger transaction not found', 'transactions');
+        return;
+    }
+
+    $audit = $query->auditLogForEntity('treasury_transaction', $transaction['transaction_uuid']);
+    ?>
+    <section class="detail-header card">
+        <div>
+            <a class="muted" href="<?= h(url_for('transactions')) ?>">← Back to Ledger</a>
+            <h2><?= h($transaction['description']) ?></h2>
+            <p class="muted"><?= h($transaction['transaction_type']) ?> · <?= h(local_datetime($transaction['occurred_at'])) ?></p>
+        </div>
+        <div class="detail-header-actions">
+            <?= badge($transaction['status']) ?>
+            <span class="amount detail-amount"><?= h(GP::format($transaction['amount'])) ?></span>
+        </div>
+    </section>
+
+    <section class="grid two">
+        <div class="card">
+            <h2>Transaction details</h2>
+            <div class="detail-grid">
+                <div><span>Transaction UUID</span><strong><code><?= h($transaction['transaction_uuid']) ?></code></strong></div>
+                <div><span>Amount</span><strong><?= h(GP::format($transaction['amount'])) ?></strong></div>
+                <div><span>Type</span><strong><?= h($transaction['transaction_type']) ?></strong></div>
+                <div><span>Status</span><strong><?= badge($transaction['status']) ?></strong></div>
+                <div><span>Occurred</span><strong><?= h(local_datetime($transaction['occurred_at'])) ?></strong></div>
+                <div><span>Posted</span><strong><?= h(local_datetime($transaction['posted_at'])) ?></strong></div>
+                <div><span>Posted by</span><strong><?= h($transaction['posted_by_display_name'] ?: $transaction['posted_by_rsn'] ?: '—') ?></strong></div>
+                <div><span>Source app</span><strong><?= h($transaction['app_name'] ?: 'Manual / system') ?></strong></div>
+            </div>
+            <?php if (!empty($transaction['notes'])): ?><p class="notice-inline"><?= h($transaction['notes']) ?></p><?php endif; ?>
+            <?php render_transaction_links($transaction); ?>
+            <?php if (!empty($transaction['metadata'])): ?>
+                <details class="detail-json"><summary>Metadata</summary><pre><?= h(pretty_json($transaction['metadata'])) ?></pre></details>
+            <?php endif; ?>
+        </div>
+        <div class="card">
+            <h2>Correction controls</h2>
+            <?php render_reversal_controls($transaction); ?>
+        </div>
+    </section>
+
+    <?php render_single_transaction_lines($transaction); ?>
+    <?php render_audit_log($audit, 'No audit events found for this ledger transaction.'); ?>
+    <?php
+}
+
+function render_linked_transactions(array $transactions, string $emptyMessage): void
+{
+    ?>
+    <section class="card">
+        <div class="section-header"><h2>Linked ledger transactions</h2><span class="pill"><?= count($transactions) ?> transaction<?= count($transactions) === 1 ? '' : 's' ?></span></div>
+        <?php if (!$transactions): ?>
+            <p class="empty"><?= h($emptyMessage) ?></p>
+        <?php else: ?>
+            <div class="transaction-list">
+                <?php foreach ($transactions as $transaction): ?>
+                    <details class="transaction-card" open>
+                        <summary>
+                            <span>
+                                <strong><a href="<?= h(url_for('transaction_detail', ['uuid' => $transaction['transaction_uuid']])) ?>"><?= h($transaction['description']) ?></a></strong>
+                                <small><?= h(local_datetime($transaction['occurred_at'])) ?> · <?= h($transaction['transaction_type']) ?> · <?= badge($transaction['status']) ?></small>
+                            </span>
+                            <span class="amount"><?= h(GP::format($transaction['amount'])) ?></span>
+                        </summary>
+                        <div class="ledger-lines">
+                            <?php render_ledger_lines_table($transaction['lines'] ?? []); ?>
+                        </div>
+                    </details>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+    </section>
+    <?php
+}
+
+function render_single_transaction_lines(array $transaction): void
+{
+    ?>
+    <section class="card">
+        <div class="section-header"><h2>Ledger lines</h2><span class="pill">Balanced entries</span></div>
+        <?php render_ledger_lines_table($transaction['lines'] ?? []); ?>
+    </section>
+    <?php
+}
+
+function render_ledger_lines_table(array $lines): void
+{
+    if (!$lines) {
+        echo '<p class="empty">No ledger lines found.</p>';
+        return;
+    }
+    ?>
+    <div class="table-wrap"><table>
+        <thead><tr><th>Account</th><th>Memo</th><th>RSN/Admin</th><th class="right">Debit</th><th class="right">Credit</th></tr></thead>
+        <tbody>
+        <?php foreach ($lines as $line): ?>
+            <tr>
+                <td><code><?= h($line['account_code']) ?></code> <?= h($line['account_name']) ?></td>
+                <td><?= h($line['memo'] ?: '—') ?></td>
+                <td><?= h($line['player_rsn'] ?: ($line['admin_display_name'] ?: $line['admin_rsn'] ?: '—')) ?></td>
+                <td class="right amount"><?= $line['direction'] === 'debit' ? h(GP::format($line['amount'])) : '—' ?></td>
+                <td class="right amount"><?= $line['direction'] === 'credit' ? h(GP::format($line['amount'])) : '—' ?></td>
+            </tr>
+        <?php endforeach; ?>
+        </tbody>
+    </table></div>
+    <?php
+}
+
+function render_transaction_links(array $transaction): void
+{
+    $links = [];
+    if (!empty($transaction['source_type']) && !empty($transaction['source_id'])) {
+        if ($transaction['source_type'] === 'reconciliation') {
+            $links[] = '<a href="' . h(url_for('reconciliation_detail', ['uuid' => $transaction['source_id']])) . '">Open reconciliation</a>';
+        } elseif ($transaction['source_type'] === 'payment_request' && preg_match('/^[0-9a-fA-F-]{36}$/', (string)$transaction['source_id'])) {
+            $links[] = '<a href="' . h(url_for('payment_detail', ['uuid' => $transaction['source_id']])) . '">Open money-in request</a>';
+        }
+    }
+    if (!empty($transaction['related_transaction_uuid'])) {
+        $links[] = '<a href="' . h(url_for('transaction_detail', ['uuid' => $transaction['related_transaction_uuid']])) . '">Open related transaction</a>';
+    }
+    if (!empty($transaction['reversal_uuid'])) {
+        $links[] = '<a href="' . h(url_for('transaction_detail', ['uuid' => $transaction['reversal_uuid']])) . '">Open reversal transaction</a>';
+    }
+    if (!$links) {
+        return;
+    }
+    echo '<div class="notice-inline"><strong>Related records:</strong> ' . implode(' · ', $links) . '</div>';
+}
+
+function render_reversal_controls(array $transaction): void
+{
+    if (!empty($transaction['reversal_uuid'])) {
+        ?>
+        <div class="notice-inline warning-text">This transaction has been reversed by <a href="<?= h(url_for('transaction_detail', ['uuid' => $transaction['reversal_uuid']])) ?>"><code><?= h($transaction['reversal_uuid']) ?></code></a>.</div>
+        <?php
+        return;
+    }
+    if ($transaction['status'] === 'posted' && $transaction['transaction_type'] !== 'reversal') {
+        ?>
+        <p class="muted">Reverse this transaction if it was posted in error. This creates an opposite transaction and keeps the audit trail intact.</p>
+        <form method="post" class="stacked-form compact" onsubmit="return confirm('Reverse this posted transaction? This cannot be deleted afterwards.');">
+            <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+            <input type="hidden" name="action" value="reverse_transaction">
+            <input type="hidden" name="transaction_uuid" value="<?= h($transaction['transaction_uuid']) ?>">
+            <label>Reason <textarea name="reason" required placeholder="Explain what was wrong and what this reversal is correcting."></textarea></label>
+            <div class="form-actions"><button class="button danger" type="submit">Post reversal</button></div>
+        </form>
+        <?php
+        return;
+    }
+    if ($transaction['status'] === 'reversed') {
+        echo '<div class="notice-inline warning-text">This transaction is marked reversed.</div>';
+        return;
+    }
+    echo '<p class="muted">No correction actions are available for this transaction.</p>';
+}
+
+function render_audit_log(array $events, string $emptyMessage): void
+{
+    ?>
+    <section class="card">
+        <div class="section-header"><h2>Audit trail</h2><span class="pill"><?= count($events) ?> event<?= count($events) === 1 ? '' : 's' ?></span></div>
+        <?php if (!$events): ?>
+            <p class="empty"><?= h($emptyMessage) ?></p>
+        <?php else: ?>
+            <div class="audit-list">
+                <?php foreach ($events as $event): ?>
+                    <details class="audit-card">
+                        <summary>
+                            <span><strong><?= h($event['action']) ?></strong><small><?= h(local_datetime($event['created_at'])) ?> · <?= h($event['actor_admin_name'] ?: $event['actor_admin_rsn'] ?: $event['actor_app_name'] ?: 'System') ?></small></span>
+                        </summary>
+                        <div class="audit-json-grid">
+                            <div><span>Before</span><pre><?= h(pretty_json($event['before_json'] ?? null)) ?></pre></div>
+                            <div><span>After</span><pre><?= h(pretty_json($event['after_json'] ?? null)) ?></pre></div>
+                        </div>
+                    </details>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+    </section>
+    <?php
+}
+
+function pretty_json(mixed $value): string
+{
+    if ($value === null || $value === '') {
+        return '—';
+    }
+    if (is_string($value)) {
+        $decoded = json_decode($value, true);
+        if (json_last_error() === JSON_ERROR_NONE) {
+            return json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: $value;
+        }
+        return $value;
+    }
+    return json_encode($value, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '—';
+}
+
+function render_not_found(string $message, string $backPage): void
+{
+    ?>
+    <section class="card">
+        <h2><?= h($message) ?></h2>
+        <p class="muted">The record may have been removed, or the link may be incorrect.</p>
+        <a class="button" href="<?= h(url_for($backPage)) ?>">Go back</a>
     </section>
     <?php
 }
@@ -1661,7 +2102,7 @@ function render_transaction_table(array $transactions): void
             <details class="transaction-card">
                 <summary>
                     <span>
-                        <strong><?= h($transaction['description']) ?></strong>
+                        <strong><a href="<?= h(url_for('transaction_detail', ['uuid' => $transaction['transaction_uuid']])) ?>"><?= h($transaction['description']) ?></a></strong>
                         <small><?= h(local_datetime($transaction['occurred_at'])) ?> · <?= h($transaction['transaction_type']) ?> · <?= h($transaction['app_name'] ?: 'Manual') ?> · <?= badge($transaction['status']) ?></small>
                     </span>
                     <span class="amount"><?= h(GP::format($transaction['amount'])) ?></span>
@@ -1685,10 +2126,10 @@ function render_transaction_table(array $transactions): void
                         <p class="muted">Source: <?= h($transaction['source_type']) ?> / <?= h($transaction['source_id']) ?></p>
                     <?php endif; ?>
                     <?php if (!empty($transaction['related_transaction_uuid'])): ?>
-                        <p class="muted">Related transaction: <code><?= h($transaction['related_transaction_uuid']) ?></code></p>
+                        <p class="muted">Related transaction: <a href="<?= h(url_for('transaction_detail', ['uuid' => $transaction['related_transaction_uuid']])) ?>"><code><?= h($transaction['related_transaction_uuid']) ?></code></a></p>
                     <?php endif; ?>
                     <?php if (!empty($transaction['reversal_uuid'])): ?>
-                        <div class="notice-inline warning-text">This transaction has been reversed by <code><?= h($transaction['reversal_uuid']) ?></code>.</div>
+                        <div class="notice-inline warning-text">This transaction has been reversed by <a href="<?= h(url_for('transaction_detail', ['uuid' => $transaction['reversal_uuid']])) ?>"><code><?= h($transaction['reversal_uuid']) ?></code></a>.</div>
                     <?php elseif ($transaction['status'] === 'posted' && $transaction['transaction_type'] !== 'reversal'): ?>
                         <details class="danger-zone">
                             <summary>Reverse this transaction</summary>
