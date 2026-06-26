@@ -268,3 +268,18 @@ No database migration is required for the UI update.
 ## RuneScape-themed Xero-style palette
 
 This build keeps the cleaner finance-style layout, but swaps the default blue palette for warm RuneScape-inspired browns, parchment tones, and gold accents. No database migration is required.
+
+## New menu and request page split
+
+Money In and Money Out now focus on reviewing, filtering, and acting on existing requests.
+
+Creation forms have been moved to their own pages and are available from the sidebar **New** flyout:
+
+- Money-in request
+- Money-out request
+- Treasury adjustment
+- Treasury expense
+- Admin-paid expense
+- Admin reimbursement
+
+No database migration is required.

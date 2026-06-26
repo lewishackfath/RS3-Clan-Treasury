@@ -72,7 +72,14 @@ function nav_items(): array
 
 function page_title(string $page): string
 {
-    return nav_items()[$page] ?? ucwords(str_replace('_', ' ', $page));
+    return [
+        'new_payment' => 'New money-in request',
+        'new_payout' => 'New money-out request',
+        'new_opening_balance' => 'New treasury adjustment',
+        'new_treasury_expense' => 'New treasury expense',
+        'new_admin_paid_expense' => 'New admin-paid expense',
+        'new_admin_reimbursement' => 'New admin reimbursement',
+    ][$page] ?? (nav_items()[$page] ?? ucwords(str_replace('_', ' ', $page)));
 }
 
 function page_description(string $page): string
@@ -84,6 +91,12 @@ function page_description(string $page): string
         'reconciliation' => 'Move admin-held GP into the official treasury with a clear audit trail.',
         'transactions' => 'Review posted ledger entries and reverse mistakes safely.',
         'settings' => 'Manage treasury admins, source apps, and Discord login status.',
+        'new_payment' => 'Create an expected incoming GP payment for entry fees, contributions, or other money-in workflows.',
+        'new_payout' => 'Create an outgoing GP request for prizes, expenses, or reimbursement workflows.',
+        'new_opening_balance' => 'Post an opening balance or one-off official treasury adjustment.',
+        'new_treasury_expense' => 'Record GP paid directly from the official treasury.',
+        'new_admin_paid_expense' => 'Record an expense paid personally by an admin so it can be reimbursed later.',
+        'new_admin_reimbursement' => 'Record a manual reimbursement from the official treasury to an admin.',
     ][$page] ?? 'Standalone treasury control for clan GP.';
 }
 
@@ -479,6 +492,17 @@ $apps = $loggedIn ? $appService->all(true) : [];
             </div>
         </div>
         <nav>
+            <div class="nav-new <?= str_starts_with($page, 'new_') ? 'active' : '' ?>">
+                <button class="nav-new-trigger" type="button">New</button>
+                <div class="nav-new-menu" role="menu" aria-label="New treasury item">
+                    <a href="<?= h(url_for('new_payment')) ?>">Money-in request</a>
+                    <a href="<?= h(url_for('new_payout')) ?>">Money-out request</a>
+                    <a href="<?= h(url_for('new_opening_balance')) ?>">Treasury adjustment</a>
+                    <a href="<?= h(url_for('new_treasury_expense')) ?>">Treasury expense</a>
+                    <a href="<?= h(url_for('new_admin_paid_expense')) ?>">Admin-paid expense</a>
+                    <a href="<?= h(url_for('new_admin_reimbursement')) ?>">Admin reimbursement</a>
+                </div>
+            </div>
             <?php foreach (nav_items() as $key => $label): ?>
                 <a class="<?= $page === $key ? 'active' : '' ?>" href="<?= h(url_for($key)) ?>"><?= h($label) ?></a>
             <?php endforeach; ?>
@@ -557,6 +581,18 @@ $apps = $loggedIn ? $appService->all(true) : [];
         <?php render_payments($query, $apps); ?>
     <?php elseif ($page === 'payouts'): ?>
         <?php render_payouts($query, $apps, $admins); ?>
+    <?php elseif ($page === 'new_payment'): ?>
+        <?php render_new_payment($apps); ?>
+    <?php elseif ($page === 'new_payout'): ?>
+        <?php render_new_payout($apps); ?>
+    <?php elseif ($page === 'new_opening_balance'): ?>
+        <?php render_new_opening_balance(); ?>
+    <?php elseif ($page === 'new_treasury_expense'): ?>
+        <?php render_new_treasury_expense(); ?>
+    <?php elseif ($page === 'new_admin_paid_expense'): ?>
+        <?php render_new_admin_paid_expense(); ?>
+    <?php elseif ($page === 'new_admin_reimbursement'): ?>
+        <?php render_new_admin_reimbursement(); ?>
     <?php elseif ($page === 'reconciliation'): ?>
         <?php render_reconciliation($query, $admins); ?>
     <?php elseif ($page === 'transactions'): ?>
@@ -689,54 +725,16 @@ function render_dashboard(TreasuryQueryService $query, array $admins): void
 
     <section class="card">
         <div class="section-header">
-            <h2>Quick manual actions</h2>
-            <span class="pill">For one-off adjustments</span>
+            <div>
+                <h2>Quick manual actions</h2>
+                <p class="muted">Create manual treasury movements from the New menu. These are kept separate from the overview so the dashboard stays focused on work to do.</p>
+            </div>
+            <span class="pill">Use New</span>
         </div>
-        <p class="muted">Most day-to-day activity should flow through Money in, Money out, and Bank reconciliation. Use these for opening balances and manual corrections that are not tied to a request.</p>
-        <div class="quick-form-grid">
-            <details>
-                <summary>Set or increase official treasury balance</summary>
-                <form method="post" class="stacked-form compact">
-                    <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                    <input type="hidden" name="action" value="opening_balance">
-                    <label>Amount <input name="amount" placeholder="1.25b" required></label>
-                    <label>Description <input name="description" value="Opening official treasury balance"></label>
-                    <button class="button primary" type="submit">Post balance adjustment</button>
-                </form>
-            </details>
-            <details>
-                <summary>Record expense from official treasury</summary>
-                <form method="post" class="stacked-form compact">
-                    <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                    <input type="hidden" name="action" value="expense_from_treasury">
-                    <label>Amount <input name="amount" placeholder="25m" required></label>
-                    <label>Description <input name="description" placeholder="Event supplies / prize top-up" required></label>
-                    <label>Related RSN <input name="player_rsn" placeholder="Optional"></label>
-                    <button class="button" type="submit">Post expense</button>
-                </form>
-            </details>
-            <details>
-                <summary>Admin paid an expense personally</summary>
-                <form method="post" class="stacked-form compact">
-                    <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                    <input type="hidden" name="action" value="admin_paid_expense">
-                    <label>Paid by admin <?= admin_select('paid_by_admin_id') ?></label>
-                    <label>Amount <input name="amount" placeholder="10m" required></label>
-                    <label>Description <input name="description" placeholder="What was paid?" required></label>
-                    <button class="button" type="submit">Record amount owed</button>
-                </form>
-            </details>
-            <details>
-                <summary>Reimburse an admin manually</summary>
-                <form method="post" class="stacked-form compact">
-                    <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                    <input type="hidden" name="action" value="manual_reimburse_admin">
-                    <label>Reimbursed admin <?= admin_select('reimbursed_admin_id') ?></label>
-                    <label>Amount <input name="amount" placeholder="10m" required></label>
-                    <label>Description <input name="description" value="Manual admin reimbursement"></label>
-                    <button class="button" type="submit">Post reimbursement</button>
-                </form>
-            </details>
+        <div class="workflow-grid compact-workflow">
+            <a class="workflow-card" href="<?= h(url_for('new_opening_balance')) ?>"><span>Adjustment</span><strong>Treasury adjustment</strong><small>Opening balance or one-off correction.</small></a>
+            <a class="workflow-card" href="<?= h(url_for('new_treasury_expense')) ?>"><span>Expense</span><strong>Treasury expense</strong><small>GP paid directly from official treasury.</small></a>
+            <a class="workflow-card" href="<?= h(url_for('new_admin_paid_expense')) ?>"><span>Reimbursement</span><strong>Admin-paid expense</strong><small>Admin paid personally and is owed GP.</small></a>
         </div>
     </section>
 
@@ -767,78 +765,55 @@ function render_payments(TreasuryQueryService $query, array $apps): void
         <div class="summary-tile"><span>Reconciled</span><strong><?= count_rows_by_status($rows, 'reconciled_to_treasury') ?></strong></div>
     </section>
 
-    <section class="page-grid">
-        <div class="card">
-            <div class="section-header">
-                <div>
-                    <h2>Payment requests</h2>
-                    <p class="muted">Follow GP from expected payment, to admin receipt, to treasury reconciliation.</p>
-                </div>
+    <section class="card">
+        <div class="section-header">
+            <div>
+                <h2>Payment requests</h2>
+                <p class="muted">Follow GP from expected payment, to admin receipt, to treasury reconciliation.</p>
             </div>
-            <?= status_tabs('payments', $statuses) ?>
-            <div class="filter-panel"><?php render_filters('payments', $apps, $statuses); ?></div>
-            <div class="table-wrap">
-                <table>
-                    <thead><tr><th>Created</th><th>Source</th><th>Player</th><th>Description</th><th class="right">Amount</th><th>Status</th><th>Received by</th><th>Action</th></tr></thead>
-                    <tbody>
-                    <?php foreach ($rows as $row): ?>
-                        <tr>
-                            <td><?= h(local_datetime($row['created_at'])) ?></td>
-                            <td><strong><?= h($row['app_name']) ?></strong><small><?= h($row['source_type']) ?> / <?= h($row['source_id']) ?></small></td>
-                            <td><?= h($row['player_rsn']) ?></td>
-                            <td><?= h($row['description']) ?></td>
-                            <td class="right amount"><?= h(GP::format($row['amount'])) ?></td>
-                            <td><?= badge($row['status']) ?></td>
-                            <td><?= h($row['received_by_display_name'] ?: $row['received_by_rsn'] ?: '—') ?></td>
-                            <td class="actions-cell">
-                                <?php if ($row['status'] === 'pending'): ?>
-                                    <form method="post" class="row-action">
-                                        <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                                        <input type="hidden" name="action" value="receive_payment_request">
-                                        <input type="hidden" name="request_uuid" value="<?= h($row['request_uuid']) ?>">
-                                        <button class="button small primary" type="submit">Receive</button>
-                                    </form>
-                                    <form method="post" class="row-action" onsubmit="return confirm('Cancel this pending payment request?');">
-                                        <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                                        <input type="hidden" name="action" value="cancel_payment_request">
-                                        <input type="hidden" name="request_uuid" value="<?= h($row['request_uuid']) ?>">
-                                        <button class="button small danger" type="submit">Cancel</button>
-                                    </form>
-                                <?php elseif ($row['status'] === 'received_by_admin'): ?>
-                                    <a class="button small" href="<?= h(url_for('reconciliation', ['admin_id' => (int)($row['received_by_admin_id'] ?? 0)])) ?>">Reconcile</a>
-                                <?php else: ?>
-                                    <span class="muted">—</span>
-                                <?php endif; ?>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                    <?php if (!$rows): ?><tr><td colspan="8" class="empty">No payment requests found.</td></tr><?php endif; ?>
-                    </tbody>
-                </table>
-            </div>
+            <a class="button primary" href="<?= h(url_for('new_payment')) ?>">New money-in request</a>
         </div>
-
-        <aside class="card side-panel">
-            <h2>New money-in request</h2>
-            <p class="muted">Use this for Bingo/Runes of Power entry fees, clan contributions, or any GP expected from a player.</p>
-            <form method="post" class="stacked-form compact">
-                <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                <input type="hidden" name="action" value="create_payment_request">
-                <label>Source app <?= app_select($apps, 'app_id') ?></label>
-                <label>Purpose
-                    <select name="purpose"><option value="entry_fee">Entry fee</option><option value="clan_contribution">Clan contribution</option><option value="other">Other</option></select>
-                </label>
-                <label>Player RSN <input name="player_rsn" required></label>
-                <label>Amount <input name="amount" placeholder="10m" required></label>
-                <label>Description <input name="description" placeholder="Bingo entry fee - Game 1"></label>
-                <details>
-                    <summary>Source reference</summary>
-                    <label>Source type <input name="source_type" placeholder="Optional"></label>
-                    <label>Source ID <input name="source_id" placeholder="Optional; auto-generated if blank"></label>
-                </details>
-                <button class="button primary" type="submit">Create request</button>
-            </form>
-        </aside>
+        <?= status_tabs('payments', $statuses) ?>
+        <div class="filter-panel"><?php render_filters('payments', $apps, $statuses); ?></div>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Created</th><th>Source</th><th>Player</th><th>Description</th><th class="right">Amount</th><th>Status</th><th>Received by</th><th>Action</th></tr></thead>
+                <tbody>
+                <?php foreach ($rows as $row): ?>
+                    <tr>
+                        <td><?= h(local_datetime($row['created_at'])) ?></td>
+                        <td><strong><?= h($row['app_name']) ?></strong><small><?= h($row['source_type']) ?> / <?= h($row['source_id']) ?></small></td>
+                        <td><?= h($row['player_rsn']) ?></td>
+                        <td><?= h($row['description']) ?></td>
+                        <td class="right amount"><?= h(GP::format($row['amount'])) ?></td>
+                        <td><?= badge($row['status']) ?></td>
+                        <td><?= h($row['received_by_display_name'] ?: $row['received_by_rsn'] ?: '—') ?></td>
+                        <td class="actions-cell">
+                            <?php if ($row['status'] === 'pending'): ?>
+                                <form method="post" class="row-action">
+                                    <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                    <input type="hidden" name="action" value="receive_payment_request">
+                                    <input type="hidden" name="request_uuid" value="<?= h($row['request_uuid']) ?>">
+                                    <button class="button small primary" type="submit">Receive</button>
+                                </form>
+                                <form method="post" class="row-action" onsubmit="return confirm('Cancel this pending payment request?');">
+                                    <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                    <input type="hidden" name="action" value="cancel_payment_request">
+                                    <input type="hidden" name="request_uuid" value="<?= h($row['request_uuid']) ?>">
+                                    <button class="button small danger" type="submit">Cancel</button>
+                                </form>
+                            <?php elseif ($row['status'] === 'received_by_admin'): ?>
+                                <a class="button small" href="<?= h(url_for('reconciliation', ['admin_id' => (int)($row['received_by_admin_id'] ?? 0)])) ?>">Reconcile</a>
+                            <?php else: ?>
+                                <span class="muted">—</span>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if (!$rows): ?><tr><td colspan="8" class="empty">No payment requests found.</td></tr><?php endif; ?>
+                </tbody>
+            </table>
+        </div>
     </section>
     <?php
 }
@@ -860,69 +835,189 @@ function render_payouts(TreasuryQueryService $query, array $apps, array $admins)
         <div class="summary-tile"><span>Reimbursed</span><strong><?= count_rows_by_status($rows, 'reimbursed') ?></strong></div>
     </section>
 
-    <section class="page-grid">
-        <div class="card">
-            <div class="section-header">
-                <div>
-                    <h2>Payout requests</h2>
-                    <p class="muted">Track prizes and expenses through treasury payment, admin payment, or reimbursement.</p>
-                </div>
+    <section class="card">
+        <div class="section-header">
+            <div>
+                <h2>Payout requests</h2>
+                <p class="muted">Track prizes and expenses through treasury payment, admin payment, or reimbursement.</p>
             </div>
-            <?= status_tabs('payouts', $statuses) ?>
-            <div class="filter-panel"><?php render_filters('payouts', $apps, $statuses); ?></div>
-            <div class="table-wrap">
-                <table>
-                    <thead><tr><th>Created</th><th>Source</th><th>Payee</th><th>Description</th><th class="right">Amount</th><th>Status</th><th>Admin</th><th>Actions</th></tr></thead>
-                    <tbody>
-                    <?php foreach ($rows as $row): ?>
-                        <tr>
-                            <td><?= h(local_datetime($row['created_at'])) ?></td>
-                            <td><strong><?= h($row['app_name']) ?></strong><small><?= h($row['source_type']) ?> / <?= h($row['source_id']) ?></small></td>
-                            <td><?= h($row['payee_rsn']) ?></td>
-                            <td><?= h($row['description']) ?></td>
-                            <td class="right amount"><?= h(GP::format($row['amount'])) ?></td>
-                            <td><?= badge($row['status']) ?></td>
-                            <td><?= h($row['paid_by_display_name'] ?: $row['paid_by_rsn'] ?: '—') ?></td>
-                            <td class="actions-cell">
-                                <?php if ($row['status'] === 'pending'): ?>
-                                    <form method="post" class="row-action"><input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>"><input type="hidden" name="action" value="payout_from_treasury"><input type="hidden" name="request_uuid" value="<?= h($row['request_uuid']) ?>"><button class="button small primary" type="submit">Pay from treasury</button></form>
-                                    <form method="post" class="row-action"><input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>"><input type="hidden" name="action" value="payout_by_admin"><input type="hidden" name="request_uuid" value="<?= h($row['request_uuid']) ?>"><button class="button small" type="submit">Admin paid</button></form>
-                                    <form method="post" class="row-action" onsubmit="return confirm('Cancel this pending payout request?');"><input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>"><input type="hidden" name="action" value="cancel_payout_request"><input type="hidden" name="request_uuid" value="<?= h($row['request_uuid']) ?>"><button class="button small danger" type="submit">Cancel</button></form>
-                                <?php elseif ($row['status'] === 'paid_by_admin'): ?>
-                                    <form method="post" class="row-action"><input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>"><input type="hidden" name="action" value="reimburse_payout"><input type="hidden" name="request_uuid" value="<?= h($row['request_uuid']) ?>"><button class="button small primary" type="submit">Reimburse</button></form>
-                                <?php else: ?>
-                                    <span class="muted">—</span>
-                                <?php endif; ?>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                    <?php if (!$rows): ?><tr><td colspan="8" class="empty">No payout requests found.</td></tr><?php endif; ?>
-                    </tbody>
-                </table>
-            </div>
+            <a class="button primary" href="<?= h(url_for('new_payout')) ?>">New money-out request</a>
         </div>
+        <?= status_tabs('payouts', $statuses) ?>
+        <div class="filter-panel"><?php render_filters('payouts', $apps, $statuses); ?></div>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Created</th><th>Source</th><th>Payee</th><th>Description</th><th class="right">Amount</th><th>Status</th><th>Admin</th><th>Actions</th></tr></thead>
+                <tbody>
+                <?php foreach ($rows as $row): ?>
+                    <tr>
+                        <td><?= h(local_datetime($row['created_at'])) ?></td>
+                        <td><strong><?= h($row['app_name']) ?></strong><small><?= h($row['source_type']) ?> / <?= h($row['source_id']) ?></small></td>
+                        <td><?= h($row['payee_rsn']) ?></td>
+                        <td><?= h($row['description']) ?></td>
+                        <td class="right amount"><?= h(GP::format($row['amount'])) ?></td>
+                        <td><?= badge($row['status']) ?></td>
+                        <td><?= h($row['paid_by_display_name'] ?: $row['paid_by_rsn'] ?: '—') ?></td>
+                        <td class="actions-cell">
+                            <?php if ($row['status'] === 'pending'): ?>
+                                <form method="post" class="row-action"><input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>"><input type="hidden" name="action" value="payout_from_treasury"><input type="hidden" name="request_uuid" value="<?= h($row['request_uuid']) ?>"><button class="button small primary" type="submit">Pay from treasury</button></form>
+                                <form method="post" class="row-action"><input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>"><input type="hidden" name="action" value="payout_by_admin"><input type="hidden" name="request_uuid" value="<?= h($row['request_uuid']) ?>"><button class="button small" type="submit">Admin paid</button></form>
+                                <form method="post" class="row-action" onsubmit="return confirm('Cancel this pending payout request?');"><input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>"><input type="hidden" name="action" value="cancel_payout_request"><input type="hidden" name="request_uuid" value="<?= h($row['request_uuid']) ?>"><button class="button small danger" type="submit">Cancel</button></form>
+                            <?php elseif ($row['status'] === 'paid_by_admin'): ?>
+                                <form method="post" class="row-action"><input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>"><input type="hidden" name="action" value="reimburse_payout"><input type="hidden" name="request_uuid" value="<?= h($row['request_uuid']) ?>"><button class="button small primary" type="submit">Reimburse</button></form>
+                            <?php else: ?>
+                                <span class="muted">—</span>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if (!$rows): ?><tr><td colspan="8" class="empty">No payout requests found.</td></tr><?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+    </section>
+    <?php
+}
 
-        <aside class="card side-panel">
-            <h2>New money-out request</h2>
-            <p class="muted">Use this for prizes, expenses owed to a player, or admin reimbursement workflows.</p>
-            <form method="post" class="stacked-form compact">
-                <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                <input type="hidden" name="action" value="create_payout_request">
-                <label>Source app <?= app_select($apps, 'app_id') ?></label>
-                <label>Type
-                    <select name="payout_type"><option value="prize">Prize</option><option value="expense">Expense</option><option value="admin_reimbursement">Admin reimbursement</option></select>
-                </label>
-                <label>Payee RSN <input name="payee_rsn" required></label>
-                <label>Amount <input name="amount" placeholder="50m" required></label>
-                <label>Description <input name="description" placeholder="Bingo row prize - Game 1"></label>
-                <details>
-                    <summary>Source reference</summary>
+function render_new_payment(array $apps): void
+{
+    ?>
+    <section class="card form-page-card">
+        <div class="section-header">
+            <div>
+                <h2>New money-in request</h2>
+                <p class="muted">Use this for Bingo/Runes of Power entry fees, clan contributions, or any GP expected from a player.</p>
+            </div>
+            <a class="button" href="<?= h(url_for('payments')) ?>">Back to Money in</a>
+        </div>
+        <form method="post" class="grid-form">
+            <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+            <input type="hidden" name="action" value="create_payment_request">
+            <label>Source app <?= app_select($apps, 'app_id') ?></label>
+            <label>Purpose
+                <select name="purpose"><option value="entry_fee">Entry fee</option><option value="clan_contribution">Clan contribution</option><option value="other">Other</option></select>
+            </label>
+            <label>Player RSN <input name="player_rsn" required></label>
+            <label>Amount <input name="amount" placeholder="10m" required></label>
+            <label class="wide">Description <input name="description" placeholder="Bingo entry fee - Game 1"></label>
+            <details class="wide request-source-details">
+                <summary>Source reference</summary>
+                <div class="grid-form nested-form">
                     <label>Source type <input name="source_type" placeholder="Optional"></label>
                     <label>Source ID <input name="source_id" placeholder="Optional; auto-generated if blank"></label>
-                </details>
-                <button class="button primary" type="submit">Create payout</button>
-            </form>
-        </aside>
+                </div>
+            </details>
+            <div class="form-actions"><button class="button primary" type="submit">Create money-in request</button></div>
+        </form>
+    </section>
+    <?php
+}
+
+function render_new_payout(array $apps): void
+{
+    ?>
+    <section class="card form-page-card">
+        <div class="section-header">
+            <div>
+                <h2>New money-out request</h2>
+                <p class="muted">Use this for prizes, expenses owed to a player, or admin reimbursement workflows.</p>
+            </div>
+            <a class="button" href="<?= h(url_for('payouts')) ?>">Back to Money out</a>
+        </div>
+        <form method="post" class="grid-form">
+            <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+            <input type="hidden" name="action" value="create_payout_request">
+            <label>Source app <?= app_select($apps, 'app_id') ?></label>
+            <label>Type
+                <select name="payout_type"><option value="prize">Prize</option><option value="expense">Expense</option><option value="admin_reimbursement">Admin reimbursement</option></select>
+            </label>
+            <label>Payee RSN <input name="payee_rsn" required></label>
+            <label>Amount <input name="amount" placeholder="50m" required></label>
+            <label class="wide">Description <input name="description" placeholder="Bingo row prize - Game 1"></label>
+            <details class="wide request-source-details">
+                <summary>Source reference</summary>
+                <div class="grid-form nested-form">
+                    <label>Source type <input name="source_type" placeholder="Optional"></label>
+                    <label>Source ID <input name="source_id" placeholder="Optional; auto-generated if blank"></label>
+                </div>
+            </details>
+            <div class="form-actions"><button class="button primary" type="submit">Create money-out request</button></div>
+        </form>
+    </section>
+    <?php
+}
+
+function render_new_opening_balance(): void
+{
+    ?>
+    <section class="card form-page-card">
+        <div class="section-header"><div><h2>New treasury adjustment</h2><p class="muted">Use this for the opening balance or a one-off adjustment that should directly affect the official treasury.</p></div><a class="button" href="<?= h(url_for('dashboard')) ?>">Back to Overview</a></div>
+        <form method="post" class="grid-form">
+            <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+            <input type="hidden" name="action" value="opening_balance">
+            <label>Amount <input name="amount" placeholder="1.25b" required></label>
+            <label>Occurred at <input name="occurred_at" placeholder="now"></label>
+            <label class="wide">Description <input name="description" value="Opening official treasury balance"></label>
+            <label class="wide">Notes <textarea name="notes" placeholder="Optional notes"></textarea></label>
+            <div class="form-actions"><button class="button primary" type="submit">Post treasury adjustment</button></div>
+        </form>
+    </section>
+    <?php
+}
+
+function render_new_treasury_expense(): void
+{
+    ?>
+    <section class="card form-page-card">
+        <div class="section-header"><div><h2>New treasury expense</h2><p class="muted">Record GP paid directly from the official treasury.</p></div><a class="button" href="<?= h(url_for('dashboard')) ?>">Back to Overview</a></div>
+        <form method="post" class="grid-form">
+            <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+            <input type="hidden" name="action" value="expense_from_treasury">
+            <label>Amount <input name="amount" placeholder="25m" required></label>
+            <label>Related RSN <input name="player_rsn" placeholder="Optional"></label>
+            <label class="wide">Description <input name="description" placeholder="Event supplies / prize top-up" required></label>
+            <label class="wide">Notes <textarea name="notes" placeholder="Optional notes"></textarea></label>
+            <div class="form-actions"><button class="button primary" type="submit">Post treasury expense</button></div>
+        </form>
+    </section>
+    <?php
+}
+
+function render_new_admin_paid_expense(): void
+{
+    ?>
+    <section class="card form-page-card">
+        <div class="section-header"><div><h2>New admin-paid expense</h2><p class="muted">Record an expense paid personally by an admin so the treasury knows they are owed reimbursement.</p></div><a class="button" href="<?= h(url_for('dashboard')) ?>">Back to Overview</a></div>
+        <form method="post" class="grid-form">
+            <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+            <input type="hidden" name="action" value="admin_paid_expense">
+            <label>Paid by admin <?= admin_select('paid_by_admin_id') ?></label>
+            <label>Amount <input name="amount" placeholder="10m" required></label>
+            <label>Related RSN <input name="player_rsn" placeholder="Optional"></label>
+            <label>Occurred at <input name="occurred_at" placeholder="now"></label>
+            <label class="wide">Description <input name="description" placeholder="What was paid?" required></label>
+            <label class="wide">Notes <textarea name="notes" placeholder="Optional notes"></textarea></label>
+            <div class="form-actions"><button class="button primary" type="submit">Record amount owed</button></div>
+        </form>
+    </section>
+    <?php
+}
+
+function render_new_admin_reimbursement(): void
+{
+    ?>
+    <section class="card form-page-card">
+        <div class="section-header"><div><h2>New admin reimbursement</h2><p class="muted">Record a manual reimbursement from the official treasury to an admin.</p></div><a class="button" href="<?= h(url_for('dashboard')) ?>">Back to Overview</a></div>
+        <form method="post" class="grid-form">
+            <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+            <input type="hidden" name="action" value="manual_reimburse_admin">
+            <label>Reimbursed admin <?= admin_select('reimbursed_admin_id') ?></label>
+            <label>Amount <input name="amount" placeholder="10m" required></label>
+            <label>Occurred at <input name="occurred_at" placeholder="now"></label>
+            <label class="wide">Description <input name="description" value="Manual admin reimbursement"></label>
+            <label class="wide">Notes <textarea name="notes" placeholder="Optional notes"></textarea></label>
+            <div class="form-actions"><button class="button primary" type="submit">Post reimbursement</button></div>
+        </form>
     </section>
     <?php
 }

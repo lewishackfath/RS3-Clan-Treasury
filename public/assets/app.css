@@ -300,3 +300,90 @@ th { background: #efe4c8; }
     .section-header { display: block; }
     .user-pill, .acting-admin-pill { width: 100%; }
 }
+
+.nav-new {
+    position: relative;
+}
+.nav-new-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    gap: .55rem;
+    padding: .72rem .8rem;
+    border: 0;
+    border-radius: .65rem;
+    color: #dbc7a0;
+    background: transparent;
+    cursor: default;
+    font-weight: 700;
+    text-align: left;
+}
+.nav-new-trigger::after {
+    content: "›";
+    color: #f0c86b;
+    font-size: 1.15rem;
+    line-height: 1;
+}
+.nav-new.active .nav-new-trigger,
+.nav-new:hover .nav-new-trigger,
+.nav-new:focus-within .nav-new-trigger {
+    background: rgba(240, 200, 107, .18);
+    color: #fff3d7;
+    box-shadow: inset 3px 0 0 #f0c86b;
+}
+.nav-new-menu {
+    position: absolute;
+    left: calc(100% + .5rem);
+    top: 0;
+    z-index: 20;
+    min-width: 245px;
+    display: none;
+    padding: .45rem;
+    border: 1px solid #6d5127;
+    border-radius: .85rem;
+    background: linear-gradient(180deg, #3c2c19 0%, #2d2113 100%);
+    box-shadow: 0 18px 36px rgba(24, 15, 6, .28);
+}
+.nav-new:hover .nav-new-menu,
+.nav-new:focus-within .nav-new-menu {
+    display: grid;
+    gap: .2rem;
+}
+.sidebar nav .nav-new-menu a {
+    color: #dbc7a0;
+    border-radius: .55rem;
+    padding: .58rem .65rem;
+}
+.sidebar nav .nav-new-menu a:hover {
+    background: rgba(240, 200, 107, .18);
+    color: #fff3d7;
+}
+.form-page-card {
+    max-width: 920px;
+}
+.request-source-details {
+    border: 1px solid var(--border);
+    border-radius: .85rem;
+    padding: .85rem;
+    background: var(--surface-soft);
+}
+.nested-form {
+    margin-top: .75rem;
+}
+.compact-workflow {
+    margin-bottom: 0;
+}
+
+@media (max-width: 760px) {
+    .nav-new-menu {
+        position: static;
+        min-width: 0;
+        margin-top: .25rem;
+        box-shadow: none;
+    }
+    .nav-new:hover .nav-new-menu,
+    .nav-new:focus-within .nav-new-menu {
+        display: grid;
+    }
+}
