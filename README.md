@@ -251,3 +251,15 @@ php bin/create-api-key.php bingo "Bingo Production" "payments:create,payouts:cre
 ## Important rule
 
 Posted transactions are immutable. Corrections should be handled with reversal transactions or correcting transactions, not edits or deletes.
+
+## UI flow update
+
+This package includes a cleaner finance-app style admin layout:
+
+- Sidebar labels now follow the workflow: Overview, Money in, Money out, Bank reconciliation, Ledger, Settings.
+- Overview focuses on cash position, things to do, and the three main workflows.
+- Money in and Money out use status summaries, status tabs, a filter panel, and a right-hand creation panel.
+- Bank reconciliation remains payment-specific and keeps reconciliation history visible.
+- Manual adjustments are still available, but they are grouped as quick manual actions rather than being the main dashboard focus.
+
+No database migration is required for the UI update.
