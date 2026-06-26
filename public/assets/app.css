@@ -503,3 +503,32 @@ tr:hover td { background: rgba(255, 248, 226, .22); }
     .detail-header-actions { justify-items: start; margin-top: .75rem; }
     .detail-grid, .audit-json-grid { grid-template-columns: 1fr; }
 }
+
+.report-filter-form {
+    margin-top: .75rem;
+}
+.report-tabs {
+    margin-top: .2rem;
+}
+.report-total {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    margin-top: .85rem;
+    padding: .8rem .9rem;
+    border: 1px solid var(--border-strong);
+    border-radius: .85rem;
+    background: linear-gradient(180deg, #ead7af, #dfc89b);
+}
+.report-total span {
+    color: var(--muted);
+    font-weight: 800;
+}
+.report-total strong,
+.report-grand-total {
+    font-size: 1.35rem;
+}
+.report-net-card {
+    border-color: var(--border-strong);
+}

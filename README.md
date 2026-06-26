@@ -369,3 +369,16 @@ This build adds drill-down pages for key treasury records:
 The list pages now link through to the relevant detail pages. Detail pages show the request/reconciliation summary, linked ledger transactions, ledger lines, audit events, and safe correction/reversal controls where applicable.
 
 No database migration is required for this update.
+
+## Reports
+
+This build adds a dedicated Reports section. The reports are ledger-driven and exclude transactions marked as reversed as well as reversal transactions, so correction entries do not distort operational totals.
+
+Included reports:
+
+- Revenue & expenses: profit-and-loss style summary by GL account.
+- Treasury movement: official treasury opening balance, GP moved in, GP paid out, and closing balance.
+- Admin-held funds: current held GP per admin, plus received/reconciled activity for the selected period.
+- Account activity: detailed debit/credit activity for any ledger account.
+
+No database migration is required for this update.

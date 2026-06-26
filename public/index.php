@@ -14,6 +14,7 @@ use Treasury\Services\PaymentRequestService;
 use Treasury\Services\PayoutRequestService;
 use Treasury\Services\ReconciliationService;
 use Treasury\Services\ReversalService;
+use Treasury\Services\ReportService;
 use Treasury\Services\TreasuryQueryService;
 use Treasury\Support\Env;
 use Treasury\Support\GP;
@@ -67,6 +68,7 @@ function nav_items(): array
         'payouts' => 'Money out',
         'reconciliation' => 'Bank reconciliation',
         'transactions' => 'Ledger',
+        'reports' => 'Reports',
         'chart_accounts' => 'Chart of Accounts',
         'users' => 'Users',
         'settings' => 'Settings',
@@ -89,6 +91,7 @@ function page_title(string $page): string
         'payout_detail' => 'Money-out detail',
         'reconciliation_detail' => 'Reconciliation detail',
         'transaction_detail' => 'Transaction detail',
+        'reports' => 'Reports',
     ][$page] ?? (nav_items()[$page] ?? ucwords(str_replace('_', ' ', $page)));
 }
 
@@ -101,6 +104,7 @@ function page_description(string $page): string
         'reconciliation' => 'Move admin-held GP into the official treasury with a clear audit trail.',
         'transactions' => 'Review posted ledger entries and reverse mistakes safely.',
         'settings' => 'Manage source apps and Discord login status.',
+        'reports' => 'Review revenue, expenses, official treasury movement, admin-held funds, and account activity.',
         'chart_accounts' => 'Manage revenue and expense ledger accounts used to categorise GP transactions.',
         'users' => 'Manage treasury users, Discord links, active status, and RSN changes.',
         'setup_rsn' => 'Link your Discord login to a treasury user before continuing.',
@@ -712,6 +716,8 @@ $expenseAccounts = $loggedIn ? $accountService->postingAccounts('expense') : [];
         <?php render_reconciliation_detail($query); ?>
     <?php elseif ($page === 'transactions'): ?>
         <?php render_transactions($query, $apps); ?>
+    <?php elseif ($page === 'reports'): ?>
+        <?php render_reports(new ReportService()); ?>
     <?php elseif ($page === 'transaction_detail'): ?>
         <?php render_transaction_detail($query); ?>
     <?php elseif ($page === 'chart_accounts'): ?>
@@ -1968,6 +1974,238 @@ function render_users(array $admins): void
             </table>
         </div>
     </section>
+    <?php
+}
+
+
+function render_reports(ReportService $reports): void
+{
+    $activeReport = (string)($_GET['report'] ?? 'profit_loss');
+    $allowed = ['profit_loss', 'treasury_movement', 'admin_held', 'account_activity'];
+    if (!in_array($activeReport, $allowed, true)) {
+        $activeReport = 'profit_loss';
+    }
+
+    $bounds = report_date_bounds();
+    $accounts = $reports->reportAccounts();
+    $selectedAccountId = (int)($_GET['account_id'] ?? 0);
+    if ($selectedAccountId <= 0) {
+        foreach ($accounts as $account) {
+            if (in_array($account['account_type'], ['income', 'expense'], true) && (int)$account['is_system'] === 0) {
+                $selectedAccountId = (int)$account['id'];
+                break;
+            }
+        }
+        if ($selectedAccountId <= 0 && $accounts) {
+            $selectedAccountId = (int)$accounts[0]['id'];
+        }
+    }
+    ?>
+    <section class="card">
+        <div class="section-header">
+            <div>
+                <h2>Reports</h2>
+                <p class="muted">Showing <?= h(report_date_label($bounds)) ?>. Reversed transactions and reversal entries are excluded from report totals.</p>
+            </div>
+        </div>
+        <nav class="status-tabs report-tabs" aria-label="Report tabs">
+            <a class="<?= $activeReport === 'profit_loss' ? 'active' : '' ?>" href="<?= h(url_for('reports', array_filter(['report' => 'profit_loss', 'from' => $bounds['from'], 'to' => $bounds['to']], fn($v) => $v !== ''))) ?>">Revenue & expenses</a>
+            <a class="<?= $activeReport === 'treasury_movement' ? 'active' : '' ?>" href="<?= h(url_for('reports', array_filter(['report' => 'treasury_movement', 'from' => $bounds['from'], 'to' => $bounds['to']], fn($v) => $v !== ''))) ?>">Treasury movement</a>
+            <a class="<?= $activeReport === 'admin_held' ? 'active' : '' ?>" href="<?= h(url_for('reports', array_filter(['report' => 'admin_held', 'from' => $bounds['from'], 'to' => $bounds['to']], fn($v) => $v !== ''))) ?>">Admin-held funds</a>
+            <a class="<?= $activeReport === 'account_activity' ? 'active' : '' ?>" href="<?= h(url_for('reports', array_filter(['report' => 'account_activity', 'account_id' => $selectedAccountId, 'from' => $bounds['from'], 'to' => $bounds['to']], fn($v) => $v !== '' && $v !== 0))) ?>">Account activity</a>
+        </nav>
+        <?php render_report_filters($activeReport, $bounds, $accounts, $selectedAccountId); ?>
+    </section>
+
+    <?php if ($activeReport === 'profit_loss'): ?>
+        <?php render_profit_loss_report($reports->profitAndLoss($bounds['from_utc'], $bounds['to_utc'])); ?>
+    <?php elseif ($activeReport === 'treasury_movement'): ?>
+        <?php render_treasury_movement_report($reports->treasuryMovement($bounds['from_utc'], $bounds['to_utc'])); ?>
+    <?php elseif ($activeReport === 'admin_held'): ?>
+        <?php render_admin_held_report($reports->adminHeldFunds($bounds['from_utc'], $bounds['to_utc'])); ?>
+    <?php elseif ($activeReport === 'account_activity'): ?>
+        <?php if ($selectedAccountId > 0): ?>
+            <?php try { render_account_activity_report($reports->accountActivity($selectedAccountId, $bounds['from_utc'], $bounds['to_utc'])); } catch (Throwable $e) { render_not_found('The selected account could not be found.', 'reports'); } ?>
+        <?php else: ?>
+            <section class="notice-card"><h2>No accounts yet</h2><p>Create accounts or post transactions before using account activity.</p></section>
+        <?php endif; ?>
+    <?php endif; ?>
+    <?php
+}
+
+function render_report_filters(string $activeReport, array $bounds, array $accounts, int $selectedAccountId): void
+{
+    ?>
+    <form method="get" class="filter-form report-filter-form">
+        <input type="hidden" name="page" value="reports">
+        <input type="hidden" name="report" value="<?= h($activeReport) ?>">
+        <label>From <input type="date" name="from" value="<?= h($bounds['from']) ?>"></label>
+        <label>To <input type="date" name="to" value="<?= h($bounds['to']) ?>"></label>
+        <?php if ($activeReport === 'account_activity'): ?>
+            <label>Account <?= report_account_select($accounts, $selectedAccountId) ?></label>
+        <?php endif; ?>
+        <button class="button" type="submit">Run report</button>
+        <a class="button ghost" href="<?= h(url_for('reports', ['report' => $activeReport] + ($activeReport === 'account_activity' && $selectedAccountId > 0 ? ['account_id' => $selectedAccountId] : []))) ?>">Clear dates</a>
+    </form>
+    <?php
+}
+
+function report_account_select(array $accounts, int $selectedAccountId): string
+{
+    ob_start();
+    ?>
+    <select name="account_id" required>
+        <?php foreach ($accounts as $account): ?>
+            <option value="<?= (int)$account['id'] ?>" <?= $selectedAccountId === (int)$account['id'] ? 'selected' : '' ?>>
+                <?= h($account['code'] . ' · ' . $account['name'] . ' (' . ucwords($account['account_type']) . ')' . ((int)$account['is_active'] === 1 ? '' : ' — archived')) ?>
+            </option>
+        <?php endforeach; ?>
+    </select>
+    <?php
+    return ob_get_clean();
+}
+
+function render_profit_loss_report(array $report): void
+{
+    ?>
+    <section class="metric-grid">
+        <div class="metric"><span>Total revenue</span><strong><?= h(GP::format($report['income_total'])) ?></strong><small>Credited to revenue accounts</small></div>
+        <div class="metric"><span>Total expenses</span><strong><?= h(GP::format($report['expense_total'])) ?></strong><small>Debited to expense accounts</small></div>
+        <div class="metric"><span>Net GP movement</span><strong><?= h(GP::format($report['net_movement'])) ?></strong><small>Revenue minus expenses</small></div>
+        <div class="metric"><span>Posting accounts</span><strong><?= count($report['income']) + count($report['expenses']) ?></strong><small>Accounts with activity</small></div>
+    </section>
+    <section class="grid two">
+        <div class="card">
+            <h2>Revenue</h2>
+            <?php render_pl_account_table($report['income'], 'No revenue recorded for this period.'); ?>
+            <div class="report-total"><span>Total revenue</span><strong><?= h(GP::format($report['income_total'])) ?></strong></div>
+        </div>
+        <div class="card">
+            <h2>Expenses</h2>
+            <?php render_pl_account_table($report['expenses'], 'No expenses recorded for this period.'); ?>
+            <div class="report-total"><span>Total expenses</span><strong><?= h(GP::format($report['expense_total'])) ?></strong></div>
+        </div>
+    </section>
+    <section class="card report-net-card">
+        <div class="section-header"><div><h2>Net GP movement</h2><p class="muted">This is not the official treasury balance. It is income minus expenses for the selected period.</p></div><strong class="amount report-grand-total"><?= h(GP::format($report['net_movement'])) ?></strong></div>
+    </section>
+    <?php
+}
+
+function render_pl_account_table(array $rows, string $empty): void
+{
+    if (!$rows) {
+        echo '<p class="empty">' . h($empty) . '</p>';
+        return;
+    }
+    ?>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Account</th><th class="right">Debits</th><th class="right">Credits</th><th class="right">Total</th></tr></thead>
+            <tbody>
+            <?php foreach ($rows as $row): ?>
+                <tr>
+                    <td><a href="<?= h(url_for('reports', ['report' => 'account_activity', 'account_id' => (int)$row['id']])) ?>"><code><?= h($row['code']) ?></code> <?= h($row['name']) ?></a></td>
+                    <td class="right amount"><?= h(GP::format($row['debits'])) ?></td>
+                    <td class="right amount"><?= h(GP::format($row['credits'])) ?></td>
+                    <td class="right amount"><?= h(GP::format($row['movement'])) ?></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+    <?php
+}
+
+function render_treasury_movement_report(array $report): void
+{
+    ?>
+    <section class="metric-grid">
+        <div class="metric"><span>Opening official treasury</span><strong><?= h(GP::format($report['opening_balance'])) ?></strong><small>Balance before selected period</small></div>
+        <div class="metric"><span>Moved into treasury</span><strong><?= h(GP::format($report['money_in'])) ?></strong><small>Debits to official treasury</small></div>
+        <div class="metric"><span>Paid out of treasury</span><strong><?= h(GP::format($report['money_out'])) ?></strong><small>Credits from official treasury</small></div>
+        <div class="metric"><span>Closing official treasury</span><strong><?= h(GP::format($report['closing_balance'])) ?></strong><small>Opening plus net movement</small></div>
+    </section>
+    <section class="card">
+        <h2>Official treasury activity</h2>
+        <?php render_account_activity_rows($report['rows']); ?>
+    </section>
+    <?php
+}
+
+function render_admin_held_report(array $report): void
+{
+    ?>
+    <section class="metric-grid">
+        <div class="metric"><span>Currently admin-held</span><strong><?= h(GP::format($report['totals']['current_held'])) ?></strong><small>GP not yet in official treasury</small></div>
+        <div class="metric"><span>Received in period</span><strong><?= h(GP::format($report['totals']['received_amount'])) ?></strong><small><?= (int)$report['totals']['received_count'] ?> payments</small></div>
+        <div class="metric"><span>Reconciled in period</span><strong><?= h(GP::format($report['totals']['reconciled_amount'])) ?></strong><small><?= (int)$report['totals']['reconciled_count'] ?> reconciliations</small></div>
+        <div class="metric"><span>Admins</span><strong><?= count($report['rows']) ?></strong><small>Active and archived users</small></div>
+    </section>
+    <section class="card">
+        <h2>Admin-held funds</h2>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Admin</th><th class="right">Currently held</th><th class="right">Received in period</th><th class="right">Reconciled in period</th><th>Last reconciliation</th></tr></thead>
+                <tbody>
+                <?php foreach ($report['rows'] as $row): ?>
+                    <tr>
+                        <td><?= h($row['display_name'] ?: $row['rsn']) ?><?= (int)$row['is_active'] === 1 ? '' : ' ' . badge('archived') ?><small><?= h($row['rsn']) ?></small></td>
+                        <td class="right amount"><?= h(GP::format($row['current_held'])) ?></td>
+                        <td class="right amount"><?= h(GP::format($row['received_amount'])) ?><small><?= (int)$row['received_count'] ?> payments</small></td>
+                        <td class="right amount"><?= h(GP::format($row['reconciled_amount'])) ?><small><?= (int)$row['reconciled_count'] ?> reconciliations</small></td>
+                        <td><?= h(local_datetime($row['last_reconciled_at'] ?? null)) ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if (!$report['rows']): ?><tr><td colspan="5" class="empty">No treasury users found.</td></tr><?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+    </section>
+    <?php
+}
+
+function render_account_activity_report(array $report): void
+{
+    $account = $report['account'];
+    ?>
+    <section class="metric-grid">
+        <div class="metric"><span>Opening balance</span><strong><?= h(GP::format($report['opening_balance'])) ?></strong><small><?= h($account['code']) ?> · <?= h($account['name']) ?></small></div>
+        <div class="metric"><span>Debits</span><strong><?= h(GP::format($report['debits'])) ?></strong><small>Period total</small></div>
+        <div class="metric"><span>Credits</span><strong><?= h(GP::format($report['credits'])) ?></strong><small>Period total</small></div>
+        <div class="metric"><span>Closing balance</span><strong><?= h(GP::format($report['closing_balance'])) ?></strong><small>Normal balance: <?= h($account['normal_balance']) ?></small></div>
+    </section>
+    <section class="card">
+        <div class="section-header"><div><h2>Account activity</h2><p class="muted"><code><?= h($account['code']) ?></code> <?= h($account['name']) ?> · <?= h(ucwords($account['account_type'])) ?></p></div><strong class="amount"><?= h(GP::format($report['period_movement'])) ?></strong></div>
+        <?php render_account_activity_rows($report['rows']); ?>
+    </section>
+    <?php
+}
+
+function render_account_activity_rows(array $rows): void
+{
+    if (!$rows) {
+        echo '<p class="empty">No account activity found for this period.</p>';
+        return;
+    }
+    ?>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Date</th><th>Description</th><th>Memo / RSN</th><th class="right">Debit</th><th class="right">Credit</th><th class="right">Movement</th></tr></thead>
+            <tbody>
+            <?php foreach ($rows as $row): ?>
+                <tr>
+                    <td><?= h(local_datetime($row['occurred_at'])) ?><small><?= h($row['transaction_type']) ?></small></td>
+                    <td><a href="<?= h(url_for('transaction_detail', ['uuid' => $row['transaction_uuid']])) ?>"><?= h($row['description']) ?></a><small><?= h($row['app_name'] ?: 'Manual') ?></small></td>
+                    <td><?= h($row['memo'] ?: '—') ?><small><?= h($row['player_rsn'] ?: ($row['admin_display_name'] ?: $row['admin_rsn'] ?: '—')) ?></small></td>
+                    <td class="right amount"><?= (int)$row['debit_amount'] > 0 ? h(GP::format($row['debit_amount'])) : '—' ?></td>
+                    <td class="right amount"><?= (int)$row['credit_amount'] > 0 ? h(GP::format($row['credit_amount'])) : '—' ?></td>
+                    <td class="right amount"><?= h(GP::format($row['movement'])) ?></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
     <?php
 }
 
