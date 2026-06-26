@@ -95,7 +95,7 @@ final class PaymentRequestService
             $transaction = $ledger->postTransaction([
                 'app_id' => (int)$row['app_id'],
                 'source_type' => 'payment_request',
-                'source_id' => $row['request_uuid'],
+                'source_id' => $this->uniqueTransactionSourceId((int)$row['app_id'], 'payment_request', $row['request_uuid']),
                 'transaction_type' => $row['purpose'] === 'entry_fee' ? 'entry_fee' : 'contribution',
                 'description' => $row['description'],
                 'notes' => $data['notes'] ?? null,
@@ -191,6 +191,30 @@ final class PaymentRequestService
         } catch (\Throwable $e) {
             $pdo->rollBack();
             throw $e;
+        }
+    }
+
+
+    private function uniqueTransactionSourceId(int $appId, string $sourceType, string $baseSourceId): string
+    {
+        $baseSourceId = substr($baseSourceId, 0, 92);
+        $candidate = $baseSourceId;
+        $i = 1;
+        $stmt = Database::pdo()->prepare(
+            'SELECT COUNT(*) FROM treasury_transactions WHERE app_id = :app_id AND source_type = :source_type AND source_id = :source_id'
+        );
+
+        while (true) {
+            $stmt->execute([
+                'app_id' => $appId,
+                'source_type' => $sourceType,
+                'source_id' => $candidate,
+            ]);
+            if ((int)$stmt->fetchColumn() === 0) {
+                return $candidate;
+            }
+            $i++;
+            $candidate = substr($baseSourceId, 0, 92) . '-r' . $i;
         }
     }
 

@@ -275,3 +275,20 @@ td small { display: block; color: var(--muted); margin-top: .15rem; }
     color: #ffe2dc;
 }
 .warning-text { color: var(--gold); }
+
+.notice-inline {
+    margin-top: .75rem;
+    padding: .7rem .85rem;
+    border: 1px solid rgba(231,189,103,.28);
+    border-radius: .75rem;
+    background: rgba(18,13,9,.45);
+}
+.danger-zone {
+    margin-top: .9rem;
+    border-top: 1px solid rgba(226,138,125,.25);
+    padding-top: .6rem;
+}
+.danger-zone summary {
+    color: var(--red);
+    margin: 0 0 .6rem;
+}

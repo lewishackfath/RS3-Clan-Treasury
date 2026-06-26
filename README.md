@@ -16,6 +16,7 @@ The application can be used manually through the admin UI before any external ap
 - Manual expenses from the official treasury.
 - Manual admin-paid expenses and reimbursements.
 - Ledger transaction history with debit/credit lines.
+- Ledger correction workflow using linked reversal transactions.
 - Source app management for Bingo, Runes of Power, and future apps.
 - MySQL schema for apps, API keys, admins, accounts, payment requests, payout requests, reconciliations, ledger transactions, ledger entries, idempotency, and audit logs.
 - Minimal API layer, ready to expand after the application workflow is settled.
@@ -132,6 +133,24 @@ When this is enabled, the header no longer shows the acting-admin dropdown. It s
 8. Use **Ledger** to review the immutable debit/credit history.
 
 
+
+
+## Ledger corrections and reversals
+
+Posted ledger transactions are not edited or deleted. If a mistake is made, open **Ledger**, expand the transaction, and use **Reverse this transaction**.
+
+A reversal creates a new posted transaction with the opposite debit/credit lines, then marks the original transaction as `reversed`. This keeps the audit trail intact.
+
+Linked workflow behaviour is conservative:
+
+- A received payment can be reversed only while it is still `received_by_admin`. The payment request returns to `pending`.
+- A reconciled payment receipt cannot be reversed until the reconciliation transaction is reversed first.
+- Reversing a reconciliation returns the linked payments to `received_by_admin` and marks the reconciliation record `cancelled`.
+- A payout paid from treasury or paid by an admin can be reversed while it has not progressed further. The payout request returns to `pending`.
+- An admin-paid payout that has already been reimbursed must have the reimbursement reversed before the original payout can be reversed.
+- Reversing a payout reimbursement returns the payout request to `paid_by_admin`.
+
+After a request is returned to `pending`, it can be received or paid again. The app safely generates a new internal transaction source ID so the original reversed transaction remains traceable.
 
 ## Reconciliation workflow
 

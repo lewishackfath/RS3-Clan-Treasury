@@ -12,6 +12,7 @@ use Treasury\Services\ManualLedgerService;
 use Treasury\Services\PaymentRequestService;
 use Treasury\Services\PayoutRequestService;
 use Treasury\Services\ReconciliationService;
+use Treasury\Services\ReversalService;
 use Treasury\Services\TreasuryQueryService;
 use Treasury\Support\Env;
 use Treasury\Support\GP;
@@ -355,6 +356,16 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 ]);
                 Flash::add('success', 'Selected admin-held payments reconciled into the official treasury.');
                 redirect_to('reconciliation', ['admin_id' => $fromAdminId]);
+
+            case 'reverse_transaction':
+                $result = (new ReversalService())->reverse(
+                    (string)($_POST['transaction_uuid'] ?? ''),
+                    require_acting_admin(),
+                    (string)($_POST['reason'] ?? ''),
+                    (($_POST['occurred_at'] ?? '') ?: 'now')
+                );
+                Flash::add('success', 'Transaction reversed. Reversal posted as ' . $result['reversal_transaction_uuid'] . '.');
+                redirect_to('transactions');
         }
 
         throw new RuntimeException('Unknown action.');
@@ -1016,7 +1027,10 @@ function render_transaction_table(array $transactions): void
         <?php foreach ($transactions as $transaction): ?>
             <details class="transaction-card">
                 <summary>
-                    <span><strong><?= h($transaction['description']) ?></strong><small><?= h(local_datetime($transaction['occurred_at'])) ?> · <?= h($transaction['transaction_type']) ?> · <?= h($transaction['app_name'] ?: 'Manual') ?></small></span>
+                    <span>
+                        <strong><?= h($transaction['description']) ?></strong>
+                        <small><?= h(local_datetime($transaction['occurred_at'])) ?> · <?= h($transaction['transaction_type']) ?> · <?= h($transaction['app_name'] ?: 'Manual') ?> · <?= badge($transaction['status']) ?></small>
+                    </span>
                     <span class="amount"><?= h(GP::format($transaction['amount'])) ?></span>
                 </summary>
                 <div class="ledger-lines">
@@ -1036,6 +1050,26 @@ function render_transaction_table(array $transactions): void
                     </table>
                     <?php if (!empty($transaction['source_type']) || !empty($transaction['source_id'])): ?>
                         <p class="muted">Source: <?= h($transaction['source_type']) ?> / <?= h($transaction['source_id']) ?></p>
+                    <?php endif; ?>
+                    <?php if (!empty($transaction['related_transaction_uuid'])): ?>
+                        <p class="muted">Related transaction: <code><?= h($transaction['related_transaction_uuid']) ?></code></p>
+                    <?php endif; ?>
+                    <?php if (!empty($transaction['reversal_uuid'])): ?>
+                        <div class="notice-inline warning-text">This transaction has been reversed by <code><?= h($transaction['reversal_uuid']) ?></code>.</div>
+                    <?php elseif ($transaction['status'] === 'posted' && $transaction['transaction_type'] !== 'reversal'): ?>
+                        <details class="danger-zone">
+                            <summary>Reverse this transaction</summary>
+                            <p class="muted">This posts a linked reversal transaction with opposite ledger entries. The original transaction remains visible and is marked reversed.</p>
+                            <form method="post" class="stacked-form compact" onsubmit="return confirm('Reverse this posted transaction? This cannot be deleted afterwards.');">
+                                <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                <input type="hidden" name="action" value="reverse_transaction">
+                                <input type="hidden" name="transaction_uuid" value="<?= h($transaction['transaction_uuid']) ?>">
+                                <label>Reason <textarea name="reason" required placeholder="Explain what was wrong and what this reversal is correcting."></textarea></label>
+                                <div class="form-actions"><button class="button danger" type="submit">Post reversal</button></div>
+                            </form>
+                        </details>
+                    <?php elseif ($transaction['status'] === 'reversed'): ?>
+                        <div class="notice-inline warning-text">This transaction is marked reversed.</div>
                     <?php endif; ?>
                 </div>
             </details>

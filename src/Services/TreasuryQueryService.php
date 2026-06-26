@@ -223,11 +223,15 @@ final class TreasuryQueryService
             $params['q'] = '%' . $filters['q'] . '%';
         }
 
-        $sql = 'SELECT DISTINCT t.*, a.name AS app_name, admin.display_name AS posted_by_display_name, admin.rsn AS posted_by_rsn
+        $sql = 'SELECT DISTINCT t.*, a.name AS app_name, admin.display_name AS posted_by_display_name, admin.rsn AS posted_by_rsn,
+                       rev.transaction_uuid AS reversal_uuid,
+                       related.transaction_uuid AS related_transaction_uuid
                 FROM treasury_transactions t
                 LEFT JOIN treasury_apps a ON a.id = t.app_id
                 LEFT JOIN treasury_admins admin ON admin.id = t.posted_by_admin_id
-                LEFT JOIN treasury_ledger_entries le ON le.transaction_id = t.id';
+                LEFT JOIN treasury_ledger_entries le ON le.transaction_id = t.id
+                LEFT JOIN treasury_transactions rev ON rev.related_transaction_id = t.id AND rev.transaction_type = "reversal" AND rev.status = "posted"
+                LEFT JOIN treasury_transactions related ON related.id = t.related_transaction_id';
         if ($where) {
             $sql .= ' WHERE ' . implode(' AND ', $where);
         }
