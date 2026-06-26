@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../src/bootstrap.php';
 
+use Treasury\Auth\DiscordOAuth;
 use Treasury\Services\AdminService;
 use Treasury\Services\AppService;
 use Treasury\Services\BalanceService;
@@ -96,6 +97,52 @@ function selected_total_for_reconciliation(int $adminId, array $uuids): int
     }
 
     return $total;
+}
+
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
+    $preflightPage = current_page();
+
+    if ($preflightPage === 'discord_login') {
+        try {
+            header('Location: ' . (new DiscordOAuth())->authorizationUrl());
+            exit;
+        } catch (Throwable $e) {
+            Flash::add('error', $e->getMessage());
+            redirect_to('login');
+        }
+    }
+
+    if ($preflightPage === 'discord_callback') {
+        try {
+            $result = (new DiscordOAuth())->handleCallback($_GET);
+            AdminSession::loginWithDiscord($result['user'], $result['authorisation'] ?? null);
+
+            $matchedAdmin = AdminSession::discordUserId()
+                ? (new AdminService())->findByDiscordUserId(AdminSession::discordUserId())
+                : null;
+            $actorAdminId = $matchedAdmin ? (int)$matchedAdmin['id'] : null;
+            Treasury\Services\AuditService::log(
+                'auth.discord_login',
+                'discord_user',
+                (string)($result['user']['id'] ?? 'unknown'),
+                null,
+                [
+                    'username' => $result['user']['username'] ?? null,
+                    'global_name' => $result['user']['global_name'] ?? null,
+                    'authorisation_method' => $result['authorisation']['method'] ?? null,
+                    'matched_admin_id' => $actorAdminId,
+                ],
+                null,
+                $actorAdminId
+            );
+
+            Flash::add('success', 'Signed in with Discord.');
+            redirect_to('dashboard');
+        } catch (Throwable $e) {
+            Flash::add('error', $e->getMessage());
+            redirect_to('login');
+        }
+    }
 }
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
@@ -299,7 +346,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 $appName = Env::get('APP_NAME', 'RS3 GP Treasury');
 $page = current_page();
 $loggedIn = AdminSession::isLoggedIn();
-if (!$loggedIn && $page !== 'login') {
+if (!$loggedIn && !in_array($page, ['login', 'discord_login', 'discord_callback'], true)) {
     $page = 'login';
 }
 
@@ -350,6 +397,11 @@ $apps = $loggedIn ? $appService->all(true) : [];
                 <p>Standalone treasury control for clan GP.</p>
             </div>
             <div class="topbar-actions">
+                <div class="user-pill">
+                    <span><?= h(AdminSession::authMethod() === 'discord' ? 'Discord' : 'Signed in') ?></span>
+                    <strong><?= h(AdminSession::displayName()) ?></strong>
+                    <?php if (AdminSession::discordUserId()): ?><small>ID: <?= h(AdminSession::discordUserId()) ?></small><?php endif; ?>
+                </div>
                 <form method="post" class="inline-form">
                     <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
                     <input type="hidden" name="action" value="set_acting_admin">
@@ -402,16 +454,31 @@ $apps = $loggedIn ? $appService->all(true) : [];
 
 function render_login(string $appName): void
 {
+    $discordEnabled = DiscordOAuth::enabled();
     ?>
     <section class="login-card">
         <div class="brand large"><span class="brand-mark">◇</span><div><strong><?= h($appName) ?></strong><small>RS3 GP Accounting</small></div></div>
-        <p class="muted">Sign in with the temporary admin UI password from your <code>.env</code> file.</p>
-        <form method="post" class="stacked-form">
-            <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-            <input type="hidden" name="action" value="login">
-            <label>Admin password <input type="password" name="password" autofocus required></label>
-            <button class="button primary" type="submit">Open treasury</button>
-        </form>
+        <?php if ($discordEnabled): ?>
+            <p class="muted">Sign in with Discord to manage the treasury. Your Discord user must be linked to a treasury admin, listed as an owner, or hold an allowed Discord role.</p>
+            <a class="button primary full-button" href="<?= h(url_for('discord_login')) ?>">Sign in with Discord</a>
+            <details class="fallback-login">
+                <summary>Use fallback password login</summary>
+                <form method="post" class="stacked-form">
+                    <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                    <input type="hidden" name="action" value="login">
+                    <label>Admin password <input type="password" name="password"></label>
+                    <button class="button" type="submit">Open treasury with password</button>
+                </form>
+            </details>
+        <?php else: ?>
+            <p class="muted">Sign in with the temporary admin UI password from your <code>.env</code> file.</p>
+            <form method="post" class="stacked-form">
+                <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                <input type="hidden" name="action" value="login">
+                <label>Admin password <input type="password" name="password" autofocus required></label>
+                <button class="button primary" type="submit">Open treasury</button>
+            </form>
+        <?php endif; ?>
     </section>
     <?php
 }
@@ -738,6 +805,20 @@ function render_transactions(TreasuryQueryService $query, array $apps): void
 function render_settings(array $admins, array $apps): void
 {
     ?>
+    <section class="card">
+        <div class="section-header">
+            <h2>Discord integration</h2>
+            <span class="pill"><?= DiscordOAuth::enabled() ? 'Enabled' : 'Disabled' ?></span>
+        </div>
+        <p class="muted">Link each treasury admin to their Discord user ID. When Discord OAuth is enabled, a linked admin is automatically selected as the acting admin after login.</p>
+        <div class="config-grid">
+            <div><span>Client ID</span><strong><?= h(Env::get('DISCORD_CLIENT_ID', '') ?: 'Not set') ?></strong></div>
+            <div><span>Guild ID</span><strong><?= h(Env::get('DISCORD_GUILD_ID', '') ?: 'Optional') ?></strong></div>
+            <div><span>Redirect URI</span><strong><?= h(Env::get('DISCORD_REDIRECT_URI', '') ?: 'Not set') ?></strong></div>
+            <div><span>Role IDs</span><strong><?= h(Env::get('DISCORD_ADMIN_ROLE_IDS', '') ?: 'Linked admins / owner IDs only') ?></strong></div>
+        </div>
+    </section>
+
     <section class="grid two">
         <div class="card">
             <h2>Treasury admins</h2>
@@ -746,11 +827,11 @@ function render_settings(array $admins, array $apps): void
                 <input type="hidden" name="action" value="create_admin">
                 <label>Display name <input name="display_name" placeholder="Lewis"></label>
                 <label>RSN <input name="rsn" required></label>
-                <label>Discord user ID <input name="discord_user_id" placeholder="Optional"></label>
+                <label>Discord user ID <input name="discord_user_id" placeholder="Required for Discord auto-link"></label>
                 <button class="button primary" type="submit">Create admin</button>
             </form>
             <table>
-                <thead><tr><th>Name</th><th>RSN</th><th>Discord</th></tr></thead>
+                <thead><tr><th>Name</th><th>RSN</th><th>Discord user ID</th></tr></thead>
                 <tbody><?php foreach ($admins as $admin): ?><tr><td><?= h($admin['display_name']) ?></td><td><?= h($admin['rsn']) ?></td><td><?= h($admin['discord_user_id'] ?: '—') ?></td></tr><?php endforeach; ?></tbody>
             </table>
         </div>

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Treasury\Web;
 
 use Treasury\Support\Env;
+use Treasury\Services\AdminService;
 
 final class AdminSession
 {
@@ -32,8 +33,33 @@ final class AdminSession
         }
 
         $_SESSION['admin_logged_in'] = true;
+        $_SESSION['auth_method'] = 'password';
+        $_SESSION['discord_user'] = null;
         $_SESSION['login_time'] = time();
         return true;
+    }
+
+    public static function loginWithDiscord(array $discordUser, ?array $authorisation = null): void
+    {
+        $_SESSION['admin_logged_in'] = true;
+        $_SESSION['auth_method'] = 'discord';
+        $_SESSION['discord_user'] = [
+            'id' => (string)($discordUser['id'] ?? ''),
+            'username' => (string)($discordUser['username'] ?? ''),
+            'global_name' => (string)($discordUser['global_name'] ?? ''),
+            'avatar' => (string)($discordUser['avatar'] ?? ''),
+            'authorisation_method' => (string)($authorisation['method'] ?? ''),
+        ];
+        $_SESSION['login_time'] = time();
+
+        $admin = (new AdminService())->findByDiscordUserId((string)($discordUser['id'] ?? ''));
+        if ($admin) {
+            self::setActingAdminId((int)$admin['id']);
+        } elseif (!empty($authorisation['admin']['id'])) {
+            self::setActingAdminId((int)$authorisation['admin']['id']);
+        } else {
+            unset($_SESSION['acting_admin_id']);
+        }
     }
 
     public static function logout(): void
@@ -51,6 +77,33 @@ final class AdminSession
         return !empty($_SESSION['admin_logged_in']);
     }
 
+    public static function authMethod(): string
+    {
+        return (string)($_SESSION['auth_method'] ?? 'password');
+    }
+
+    public static function discordUser(): ?array
+    {
+        $user = $_SESSION['discord_user'] ?? null;
+        return is_array($user) ? $user : null;
+    }
+
+    public static function discordUserId(): ?string
+    {
+        $user = self::discordUser();
+        return $user && !empty($user['id']) ? (string)$user['id'] : null;
+    }
+
+    public static function displayName(): string
+    {
+        $user = self::discordUser();
+        if (!$user) {
+            return 'Password login';
+        }
+
+        return (string)($user['global_name'] ?: $user['username'] ?: ('Discord user ' . $user['id']));
+    }
+
     public static function requireLogin(): void
     {
         if (!self::isLoggedIn()) {
@@ -66,6 +119,14 @@ final class AdminSession
 
     public static function setActingAdminId(int $adminId): void
     {
+        if (self::authMethod() === 'discord' && Env::bool('DISCORD_LOCK_ACTING_ADMIN_TO_LOGIN', false)) {
+            $discordUserId = self::discordUserId();
+            $admin = $discordUserId ? (new AdminService())->findByDiscordUserId($discordUserId) : null;
+            if (!$admin || (int)$admin['id'] !== $adminId) {
+                throw new \RuntimeException('Acting admin is locked to your Discord-linked treasury admin.');
+            }
+        }
+
         $_SESSION['acting_admin_id'] = $adminId;
     }
 }

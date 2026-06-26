@@ -31,6 +31,21 @@ final class AdminService
         return $row;
     }
 
+
+    public function findByDiscordUserId(string $discordUserId): ?array
+    {
+        $discordUserId = trim($discordUserId);
+        if ($discordUserId === '') {
+            return null;
+        }
+
+        $stmt = Database::pdo()->prepare('SELECT * FROM treasury_admins WHERE discord_user_id = :discord_user_id AND is_active = 1 LIMIT 1');
+        $stmt->execute(['discord_user_id' => $discordUserId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row ?: null;
+    }
+
     public function create(array $data): array
     {
         $rsn = trim((string)($data['rsn'] ?? ''));

@@ -7,6 +7,7 @@ The application can be used manually through the admin UI before any external ap
 ## Included
 
 - Admin web interface for day-to-day treasury management.
+- Discord OAuth admin login with linked treasury admins, owner IDs, and optional role checks.
 - Dashboard showing official treasury, admin-held GP, reimbursements owed, and total clan GP.
 - Manual opening balance / treasury adjustment flow.
 - Payment request grid for entry fees and clan contributions.
@@ -43,7 +44,7 @@ mysql -u USER -p DATABASE < database/seed.sql
 cp .env.example .env
 ```
 
-4. Set a private admin UI password in `.env`:
+4. Set a private fallback admin UI password in `.env`:
 
 ```env
 ADMIN_UI_PASSWORD=replace_with_a_long_private_password
@@ -58,6 +59,52 @@ php bin/create-admin.php "Lewis" "Lewis" "123456789012345678"
 ```
 
 7. Select an **Acting admin** in the top-right of the UI before posting treasury actions.
+
+## Discord OAuth setup
+
+The app keeps the password login as a fallback, but Discord OAuth can be enabled once your Discord application is configured.
+
+1. Create or open a Discord application in the Discord Developer Portal.
+2. Add this exact redirect URL to the app OAuth2 redirect list:
+
+```text
+https://your-treasury-domain.example.com/?page=discord_callback
+```
+
+3. Update `.env`:
+
+```env
+DISCORD_OAUTH_ENABLED=true
+DISCORD_CLIENT_ID=your_discord_client_id
+DISCORD_CLIENT_SECRET=your_discord_client_secret
+DISCORD_REDIRECT_URI=https://your-treasury-domain.example.com/?page=discord_callback
+```
+
+4. Choose one or more authorisation methods:
+
+```env
+# Always allowed users, comma-separated Discord user IDs.
+DISCORD_OWNER_USER_IDS=123456789012345678
+
+# Allow rows in treasury_admins where discord_user_id matches the Discord account.
+DISCORD_ALLOW_LINKED_TREASURY_ADMINS=true
+
+# Optional role-based access. Requires the user to be in this server and hold one of these roles.
+DISCORD_GUILD_ID=123456789012345678
+DISCORD_ADMIN_ROLE_IDS=111111111111111111,222222222222222222
+```
+
+5. Make sure each treasury admin row has the correct Discord user ID. You can create admins through **Settings** or with:
+
+```bash
+php bin/create-admin.php "Lewis" "Lewis" "123456789012345678"
+```
+
+When a linked admin signs in with Discord, the app automatically selects that person as the acting admin. Set this if you want to prevent switching to another acting admin:
+
+```env
+DISCORD_LOCK_ACTING_ADMIN_TO_LOGIN=true
+```
 
 ## Recommended first-use workflow
 
