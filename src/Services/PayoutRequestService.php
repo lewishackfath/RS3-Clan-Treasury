@@ -17,6 +17,9 @@ final class PayoutRequestService
         $this->validateCreate($data);
         $existing = $this->findBySource($context->appId, $data['source_type'], $data['source_id']);
         if ($existing) {
+            if ($this->shouldAutoPayByAdmin($data) && $existing['status'] === 'pending') {
+                return $this->payByAdminFromApi($existing['request_uuid'], $context, $data);
+            }
             return $existing;
         }
 
@@ -51,6 +54,10 @@ final class PayoutRequestService
 
         $created = $this->getByUuid($uuid);
         AuditService::log('payout_request.created', 'treasury_payout_request', $uuid, null, $created, $context);
+
+        if ($this->shouldAutoPayByAdmin($data)) {
+            return $this->payByAdminFromApi($uuid, $context, $data);
+        }
 
         return $created;
     }
@@ -158,12 +165,36 @@ final class PayoutRequestService
             throw new \InvalidArgumentException('admin_id is required');
         }
 
+        return $this->payByAdminInternal($uuid, $adminId, $data, $adminId, null);
+    }
+
+    public function payByAdminFromApi(string $uuid, ApiContext $context, array $data): array
+    {
+        if (!$context->can('payouts:pay')) {
+            throw new \RuntimeException('API key does not have required scope: payouts:pay', 403);
+        }
+
+        $adminId = $this->resolvePaidByAdminId($data);
+        return $this->payByAdminInternal($uuid, $adminId, $data, null, $context);
+    }
+
+    private function payByAdminInternal(string $uuid, int $adminId, array $data, ?int $postedByAdminId, ?ApiContext $context): array
+    {
+        if ($adminId <= 0) {
+            throw new \InvalidArgumentException('paid_by_admin_id or paid_by_admin_rsn is required');
+        }
+
         $pdo = Database::pdo();
         $pdo->beginTransaction();
 
         try {
             $row = $this->lockByUuid($uuid);
             if ($row['status'] !== 'pending') {
+                if (in_array($row['status'], ['paid_by_admin', 'reimbursed'], true)
+                    && (int)($row['paid_by_admin_id'] ?? 0) === $adminId) {
+                    $pdo->commit();
+                    return $this->getByUuid($uuid);
+                }
                 throw new \RuntimeException('Only pending payout requests can be marked as paid by admin', 409);
             }
 
@@ -181,8 +212,14 @@ final class PayoutRequestService
                 'description' => $row['description'],
                 'notes' => $data['notes'] ?? null,
                 'occurred_at' => $data['paid_at'] ?? 'now',
-                'posted_by_admin_id' => $adminId,
-                'metadata' => ['payout_request_id' => (int)$row['id'], 'payment_method' => 'admin_paid'],
+                'posted_by_admin_id' => $postedByAdminId,
+                'metadata' => [
+                    'payout_request_id' => (int)$row['id'],
+                    'payment_method' => 'admin_paid',
+                    'paid_via_api' => $context !== null,
+                    'paid_api_app_id' => $context?->appId,
+                    'paid_api_key_id' => $context?->apiKeyId,
+                ],
             ], [
                 [
                     'account_id' => $expenseAccountId,
@@ -219,7 +256,7 @@ final class PayoutRequestService
 
             $pdo->commit();
             $after = $this->getByUuid($uuid);
-            AuditService::log('payout_request.paid_by_admin', 'treasury_payout_request', $uuid, $this->format($row), $after, null, $adminId);
+            AuditService::log('payout_request.paid_by_admin', 'treasury_payout_request', $uuid, $this->format($row), $after, $context, $postedByAdminId);
             return $after;
         } catch (\Throwable $e) {
             $pdo->rollBack();
@@ -348,6 +385,38 @@ final class PayoutRequestService
         }
     }
 
+
+    private function shouldAutoPayByAdmin(array $data): bool
+    {
+        return !empty($data['paid_by_admin_id'])
+            || !empty($data['paid_by_admin_rsn'])
+            || !empty($data['paid_by_rsn'])
+            || !empty($data['paid_by']);
+    }
+
+    private function resolvePaidByAdminId(array $data): int
+    {
+        $id = (int)($data['paid_by_admin_id'] ?? $data['admin_id'] ?? 0);
+        if ($id > 0) {
+            $admin = (new AdminService())->get($id);
+            if ((int)($admin['is_active'] ?? 0) !== 1) {
+                throw new \InvalidArgumentException('Paid-by admin is archived. Restore the user before using them in API payouts.');
+            }
+            return $id;
+        }
+
+        $rsn = trim((string)($data['paid_by_admin_rsn'] ?? $data['paid_by_rsn'] ?? $data['paid_by'] ?? ''));
+        if ($rsn === '') {
+            throw new \InvalidArgumentException('paid_by_admin_rsn is required when marking a payout as paid by admin via API');
+        }
+
+        $admin = (new AdminService())->findByRsn($rsn);
+        if (!$admin) {
+            throw new \InvalidArgumentException('No active treasury user found for paid_by_admin_rsn: ' . $rsn);
+        }
+
+        return (int)$admin['id'];
+    }
 
     private function uniqueTransactionSourceId(int $appId, string $sourceType, string $baseSourceId): string
     {

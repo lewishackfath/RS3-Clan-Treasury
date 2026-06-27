@@ -83,6 +83,7 @@ Content-Type: application/json</code></pre>
                         <tr><td><code>payments:receive</code></td><td>Mark Money In requests as received by an admin/API-reported holder.</td></tr>
                         <tr><td><code>payments:read</code></td><td>Read Money In request status.</td></tr>
                         <tr><td><code>payouts:create</code></td><td>Create Money Out requests.</td></tr>
+                        <tr><td><code>payouts:pay</code></td><td>Mark Money Out requests as paid by an admin from their own GP.</td></tr>
                         <tr><td><code>payouts:read</code></td><td>Read Money Out request status.</td></tr>
                         <tr><td><code>balances:read</code></td><td>Read current treasury balances.</td></tr>
                     </tbody>
@@ -186,6 +187,34 @@ GET <?= h($apiBase) ?>/money-in-requests/by-source/{source_type}/{source_id}</co
   }
 }</code></pre>
 
+                <h3>Create Money Out request already paid by an admin</h3>
+                <pre><code>POST <?= h($apiBase) ?>/money-out-requests</code></pre>
+                <p>Required scopes: <code>payouts:create</code> and <code>payouts:pay</code></p>
+                <pre><code>{
+  "source_type": "runes_of_power_winnings",
+  "source_id": "draw_8_winner_playerx",
+  "payee_rsn": "PlayerX",
+  "amount": 25000000,
+  "description": "Runes of Power draw 8 winnings",
+  "expense_account_code": "5100",
+  "paid_by_admin_rsn": "Lodo",
+  "paid_at": "2026-06-27T10:58:00+10:00",
+  "metadata": {
+    "draw_id": 8,
+    "winner_rsn": "PlayerX"
+  }
+}</code></pre>
+                <p>This creates the request and immediately posts it as <code>paid_by_admin</code>. The GP is recorded as an admin reimbursement payable until the admin is reimbursed from the official treasury inside Treasury.</p>
+
+                <h3>Mark existing Money Out request as paid by admin</h3>
+                <pre><code>POST <?= h($apiBase) ?>/money-out-requests/{request_uuid}/pay-by-admin</code></pre>
+                <p>Required scope: <code>payouts:pay</code></p>
+                <pre><code>{
+  "paid_by_admin_rsn": "Lodo",
+  "paid_at": "2026-06-27T10:58:00+10:00",
+  "notes": "Paid in-game by Lodo"
+}</code></pre>
+
                 <h3>Read Money Out request</h3>
                 <pre><code>GET <?= h($apiBase) ?>/money-out-requests/{request_uuid}
 GET <?= h($apiBase) ?>/money-out-requests/by-source/{source_type}/{source_id}</code></pre>
@@ -202,6 +231,8 @@ GET <?= h($apiBase) ?>/money-out-requests/by-source/{source_type}/{source_id}</c
                         <tr><td><code>description</code></td><td>Recommended</td><td>Shown to treasury admins.</td></tr>
                         <tr><td><code>expense_account_code</code></td><td>Yes</td><td>Must be an active posting Expense GL account.</td></tr>
                         <tr><td><code>metadata</code></td><td>No</td><td>JSON object for source app context.</td></tr>
+                        <tr><td><code>paid_by_admin_rsn</code></td><td>No</td><td>When supplied with <code>payouts:pay</code>, creates the request as already paid by that active treasury user.</td></tr>
+                        <tr><td><code>paid_at</code></td><td>No</td><td>ISO-8601 date/time of payment. Defaults to current server time.</td></tr>
                     </tbody>
                 </table>
             </section>
@@ -270,8 +301,9 @@ GET <?= h($apiBase) ?>/money-out-requests/by-source/{source_type}/{source_id}</c
                     <li>Call <code>GET /api/v1/me</code> from the source app to confirm authentication.</li>
                     <li>Create Money In/Out requests using stable <code>source_type</code> and <code>source_id</code> values.</li>
                     <li>If the source app already knows an admin physically received the GP, include <code>received_by_admin_rsn</code> and grant <code>payments:receive</code>.</li>
+                    <li>If the source app already knows an admin paid outgoing GP from their own funds, include <code>paid_by_admin_rsn</code> and grant <code>payouts:pay</code>.</li>
                     <li>Poll by UUID or by source reference to display Treasury status inside the source app.</li>
-                    <li>Let Treasury admins handle treasury handovers/reconciliation, payouts, and corrections from the Treasury UI.</li>
+                    <li>Let Treasury admins handle treasury handovers/reconciliation, reimbursements, and corrections from the Treasury UI.</li>
                 </ol>
             </section>
         </div>

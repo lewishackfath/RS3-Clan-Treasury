@@ -248,7 +248,7 @@ X-Admin-Token: <ADMIN_API_TOKEN from .env>
 Create an API key when you are ready to integrate a source app:
 
 ```bash
-php bin/create-api-key.php bingo "Bingo Production" "payments:create,payments:receive,payouts:create,transactions:read,reconciliation:read"
+php bin/create-api-key.php bingo "Bingo Production" "payments:create,payments:receive,payments:read,payouts:create,payouts:pay,payouts:read,transactions:read,reconciliation:read"
 ```
 
 ## Important rule
@@ -417,7 +417,7 @@ https://your-treasury-domain.example/api-docs.php
 
 Use this page as the live contract when building Bingo, Runes of Power, or future source-app integrations.
 
-API v1 lets source apps create request records, read status, and optionally mark Money In as received by a named active treasury user when the API key has the dedicated `payments:receive` scope. External apps still cannot pay prizes, reconcile treasury handovers, reverse records, or post arbitrary ledger transactions.
+API v1 lets source apps create request records, read status, optionally mark Money In as received by a named active treasury user with `payments:receive`, and optionally mark Money Out as paid by a named active treasury user with `payouts:pay`. External apps still cannot reimburse admins, reconcile treasury handovers, reverse records, or post arbitrary ledger transactions.
 
 Authenticate with:
 
@@ -527,7 +527,44 @@ POST /api/v1/money-out-requests
 
 Required scope: `payouts:create`.
 
+If the source app already knows an admin paid the outgoing GP from their own funds, include `paid_by_admin_rsn` and grant the API key both `payouts:create` and `payouts:pay`:
+
+```json
+{
+  "source_type": "runes_of_power_winnings",
+  "source_id": "draw_8_winner_playerx",
+  "payee_rsn": "PlayerX",
+  "amount": 25000000,
+  "description": "Runes of Power draw 8 winnings",
+  "expense_account_code": "5100",
+  "paid_by_admin_rsn": "Lodo",
+  "paid_at": "2026-06-27T10:58:00+10:00",
+  "metadata": {
+    "draw_id": 8,
+    "winner_rsn": "PlayerX"
+  }
+}
+```
+
+This creates the request as `paid_by_admin`, posts the expense, and records the GP as an admin reimbursement payable until the admin is reimbursed from the official treasury.
+
 The older alias `POST /api/v1/payout-requests` is still supported.
+
+### Mark existing Money Out request as paid by admin
+
+```http
+POST /api/v1/money-out-requests/{request_uuid}/pay-by-admin
+```
+
+```json
+{
+  "paid_by_admin_rsn": "Lodo",
+  "paid_at": "2026-06-27T10:58:00+10:00",
+  "notes": "Paid in-game by Lodo"
+}
+```
+
+Required scope: `payouts:pay`.
 
 ### Read Money Out request
 
@@ -550,6 +587,7 @@ Required scope: `balances:read`.
 
 - `source_type` + `source_id` must be unique per source app.
 - Repeating the same source reference returns the existing request instead of creating a duplicate.
+- If the repeat includes `received_by_admin_rsn` or `paid_by_admin_rsn` and the existing request is still pending, Treasury will post the matching received/paid action.
 - `revenue_account_code` and `expense_account_code` must refer to active user-managed GL accounts.
 - Use idempotency keys for safe retries on POST requests.
 

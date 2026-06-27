@@ -150,6 +150,13 @@ try {
         exit;
     }
 
+
+    if (preg_match('#^/api/v1/(?:money-out-requests|payout-requests)/([0-9a-fA-F-]{36})/pay-by-admin$#', $path, $m) && $method === 'POST') {
+        $context = ApiAuth::requireContext('payouts:pay');
+        Response::json((new PayoutRequestService())->payByAdminFromApi($m[1], $context, $body));
+        exit;
+    }
+
     if (preg_match('#^/api/v1/(?:money-out-requests|payout-requests)/by-source/([^/]+)/([^/]+)$#', $path, $m) && $method === 'GET') {
         $context = ApiAuth::requireContext('payouts:read');
         Response::json((new PayoutRequestService())->getBySource($context->appId, rawurldecode($m[1]), rawurldecode($m[2])));

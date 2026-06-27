@@ -17,6 +17,7 @@ final class AppService
         'payments:receive' => 'Mark money-in requests as received by an admin',
         'payments:read' => 'Read money-in request status',
         'payouts:create' => 'Create money-out requests',
+        'payouts:pay' => 'Mark money-out requests as paid by an admin',
         'payouts:read' => 'Read money-out request status',
         'transactions:read' => 'Read linked transaction details',
         'balances:read' => 'Read treasury balances',
