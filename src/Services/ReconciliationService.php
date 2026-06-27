@@ -127,12 +127,20 @@ final class ReconciliationService
 
         $placeholders = implode(',', array_fill(0, count($requestUuids), '?'));
         $stmt = Database::pdo()->prepare(
-            'SELECT id, request_uuid, amount
-             FROM treasury_payment_requests
-             WHERE request_uuid IN (' . $placeholders . ')
-               AND status = "received_by_admin"
-               AND received_by_admin_id = ?
-               AND reconciliation_transaction_id IS NULL
+            'SELECT pr.id, pr.request_uuid, pr.amount,
+                    COALESCE(settled.settled_amount, 0) AS offset_settled_amount,
+                    GREATEST(pr.amount - COALESCE(settled.settled_amount, 0), 0) AS remaining_amount
+             FROM treasury_payment_requests pr
+             LEFT JOIN (
+                 SELECT request_id, SUM(amount) AS settled_amount
+                 FROM treasury_request_settlements
+                 WHERE request_type = "payment"
+                 GROUP BY request_id
+             ) settled ON settled.request_id = pr.id
+             WHERE pr.request_uuid IN (' . $placeholders . ')
+               AND pr.status = "received_by_admin"
+               AND pr.received_by_admin_id = ?
+               AND pr.reconciliation_transaction_id IS NULL
              FOR UPDATE'
         );
         $params = [...$requestUuids, $fromAdminId];
@@ -143,9 +151,9 @@ final class ReconciliationService
             throw new \RuntimeException('One or more payment requests cannot be paid into treasury for this admin', 409);
         }
 
-        $selectedTotal = array_sum(array_map(fn(array $row): int => (int)$row['amount'], $rows));
+        $selectedTotal = array_sum(array_map(fn(array $row): int => (int)($row['remaining_amount'] ?? $row['amount']), $rows));
         if ($selectedTotal !== $amount) {
-            throw new \RuntimeException('Selected payment request total does not match handover amount', 409);
+            throw new \RuntimeException('Selected payment request remaining total does not match handover amount', 409);
         }
 
         $ids = array_map(fn(array $row): int => (int)$row['id'], $rows);

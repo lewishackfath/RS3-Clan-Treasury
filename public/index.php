@@ -362,7 +362,7 @@ function selected_total_for_reconciliation(int $adminId, array $uuids): int
     $seen = [];
     foreach ($rows as $row) {
         if (in_array($row['request_uuid'], $uuids, true)) {
-            $total += (int)$row['amount'];
+            $total += (int)($row['remaining_amount'] ?? $row['amount']);
             $seen[] = $row['request_uuid'];
         }
     }
@@ -1576,7 +1576,7 @@ function render_reconciliation(TreasuryQueryService $query, array $admins): void
 
     <section class="card">
         <div class="section-header"><h2>Mutual admin balance offsets</h2><span class="pill"><?= count($offsetCandidates) ?> candidate<?= count($offsetCandidates) === 1 ? '' : 's' ?></span></div>
-        <p class="muted">When the same admin owes GP to treasury and treasury owes GP back to that admin, matching balances can be cleared without moving GP through the official treasury.</p>
+        <p class="muted">When the same admin owes GP to treasury and treasury owes GP back to that admin, the available overlap can be offset without moving GP through the official treasury. Partial offsets are supported and new admin money movements are auto-offset when possible.</p>
         <?php if (!$offsetCandidates): ?>
             <p class="empty">No mutual admin balances are available for this filter.</p>
         <?php else: ?>
@@ -1593,7 +1593,7 @@ function render_reconciliation(TreasuryQueryService $query, array $admins): void
                             <td>
                                 <?= (int)$candidate['open_payment_count'] ?> money-in totalling <?= h(GP::format($candidate['open_payment_amount'])) ?><br>
                                 <?= (int)$candidate['open_payout_count'] ?> money-out totalling <?= h(GP::format($candidate['open_payout_amount'])) ?>
-                                <?php if (!$candidate['can_auto_offset'] && $candidate['offset_amount'] > 0): ?><small><?= h($candidate['blocked_reason']) ?></small><?php endif; ?>
+                                
                             </td>
                             <td class="actions-cell">
                                 <?php if ($candidate['can_auto_offset']): ?>
@@ -1601,10 +1601,10 @@ function render_reconciliation(TreasuryQueryService $query, array $admins): void
                                         <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
                                         <input type="hidden" name="action" value="offset_admin_balance">
                                         <input type="hidden" name="admin_id" value="<?= (int)$candidate['admin_id'] ?>">
-                                        <button class="button small primary" type="submit">Offset balance</button>
+                                        <button class="button small primary" type="submit">Offset <?= h(GP::format($candidate['offset_amount'])) ?></button>
                                     </form>
                                 <?php else: ?>
-                                    <span class="muted">Not automatic</span>
+                                    <span class="muted">No overlap</span>
                                 <?php endif; ?>
                             </td>
                         </tr>
@@ -1626,7 +1626,7 @@ function render_reconciliation(TreasuryQueryService $query, array $admins): void
                 <input type="hidden" name="from_admin_id" value="<?= (int)$selectedAdminId ?>">
                 <div class="table-wrap">
                     <table>
-                        <thead><tr><th></th><th>Received</th><th>Admin</th><th>Payer</th><th>Description</th><th class="right">Amount</th></tr></thead>
+                        <thead><tr><th></th><th>Received</th><th>Admin</th><th>Payer</th><th>Description</th><th class="right">Original</th><th class="right">Remaining</th></tr></thead>
                         <tbody>
                         <?php foreach ($rows as $row): ?>
                             <tr>
@@ -1636,6 +1636,7 @@ function render_reconciliation(TreasuryQueryService $query, array $admins): void
                                 <td><?= h($row['player_rsn']) ?></td>
                                 <td><a href="<?= h(url_for('payment_detail', ['uuid' => $row['request_uuid']])) ?>"><?= h($row['description']) ?></a></td>
                                 <td class="right amount"><?= h(GP::format($row['amount'])) ?></td>
+                                <td class="right amount"><?= h(GP::format((int)($row['remaining_amount'] ?? $row['amount']))) ?></td>
                             </tr>
                         <?php endforeach; ?>
                         </tbody>

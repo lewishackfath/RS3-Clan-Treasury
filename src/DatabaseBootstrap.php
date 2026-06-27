@@ -10,7 +10,7 @@ use Treasury\Support\Env;
 
 final class DatabaseBootstrap
 {
-    private const SCHEMA_VERSION = '2026.06.27.per-admin-payables';
+    private const SCHEMA_VERSION = '2026.06.27.partial-auto-admin-offsets';
 
     private const SYSTEM_APPS = [
         [
@@ -325,6 +325,19 @@ final class DatabaseBootstrap
                 UNIQUE KEY unique_app_idempotency_key (app_id, idempotency_key)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
 
+            'CREATE TABLE IF NOT EXISTS treasury_request_settlements (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                transaction_id BIGINT UNSIGNED NOT NULL,
+                request_type ENUM("payment","payout") NOT NULL,
+                request_id BIGINT UNSIGNED NOT NULL,
+                settlement_type ENUM("admin_balance_offset") NOT NULL DEFAULT "admin_balance_offset",
+                amount BIGINT UNSIGNED NOT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_treasury_request_settlements_transaction (transaction_id),
+                INDEX idx_treasury_request_settlements_request (request_type, request_id),
+                INDEX idx_treasury_request_settlements_type (settlement_type)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
             'CREATE TABLE IF NOT EXISTS treasury_audit_log (
                 id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                 actor_admin_id BIGINT UNSIGNED NULL,
@@ -414,6 +427,8 @@ final class DatabaseBootstrap
             ['treasury_ledger_entries', 'idx_treasury_ledger_account', 'account_id'],
             ['treasury_payment_requests', 'idx_treasury_payment_revenue_account', 'revenue_account_id'],
             ['treasury_payout_requests', 'idx_treasury_payout_expense_account', 'expense_account_id'],
+            ['treasury_request_settlements', 'idx_treasury_request_settlements_transaction', 'transaction_id'],
+            ['treasury_request_settlements', 'idx_treasury_request_settlements_request', 'request_type, request_id'],
             ['treasury_audit_log', 'idx_treasury_audit_created', 'created_at'],
         ];
 

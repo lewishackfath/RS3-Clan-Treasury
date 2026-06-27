@@ -697,3 +697,19 @@ The Reconciliation page shows a **Mutual admin balance offsets** section. When t
 - Leaves the Official Treasury account unchanged.
 
 The first implementation only auto-offsets exact matching balances. Partial offsets should be handled with normal handover/reimbursement flows or future manual selection support.
+
+## Partial automatic admin balance offsets
+
+Admin balance offsets now support partial clearing. If an admin both owes GP to the treasury and is owed GP by the treasury, the app automatically offsets the overlapping amount whenever relevant Money In or Money Out movements are posted.
+
+Example:
+
+- Lodo owes treasury 2.5m GP
+- Treasury owes Lodo 1.1m GP
+- The app can automatically offset 1.1m GP
+- Lodo still owes treasury 1.4m GP
+- Official treasury balance is unchanged
+
+The offset posts a ledger adjustment between the per-admin asset account and the per-admin payable account. If the offset relates to Money In or Money Out requests, partial request allocations are tracked in `treasury_request_settlements`. Fully settled requests are automatically moved to `reconciled_to_treasury` or `reimbursed`; partially settled requests remain open for the remaining amount.
+
+DB Bootstrap creates the new settlement allocation table automatically.

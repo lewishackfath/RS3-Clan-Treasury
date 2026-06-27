@@ -226,6 +226,20 @@ CREATE TABLE treasury_idempotency_keys (
     UNIQUE KEY unique_app_idempotency_key (app_id, idempotency_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE treasury_request_settlements (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    transaction_id BIGINT UNSIGNED NOT NULL,
+    request_type ENUM('payment','payout') NOT NULL,
+    request_id BIGINT UNSIGNED NOT NULL,
+    settlement_type ENUM('admin_balance_offset') NOT NULL DEFAULT 'admin_balance_offset',
+    amount BIGINT UNSIGNED NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (transaction_id) REFERENCES treasury_transactions(id),
+    INDEX idx_treasury_request_settlements_transaction (transaction_id),
+    INDEX idx_treasury_request_settlements_request (request_type, request_id),
+    INDEX idx_treasury_request_settlements_type (settlement_type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE treasury_audit_log (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     actor_admin_id BIGINT UNSIGNED NULL,

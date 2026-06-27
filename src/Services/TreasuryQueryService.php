@@ -60,11 +60,19 @@ final class TreasuryQueryService
         $stmt = Database::pdo()->prepare(
             'SELECT pr.*, a.name AS app_name, a.slug AS app_slug,
                     admin.display_name AS received_by_display_name, admin.rsn AS received_by_rsn,
-                    revenue.code AS revenue_account_code, revenue.name AS revenue_account_name
+                    revenue.code AS revenue_account_code, revenue.name AS revenue_account_name,
+                    COALESCE(settled.settled_amount, 0) AS offset_settled_amount,
+                    GREATEST(pr.amount - COALESCE(settled.settled_amount, 0), 0) AS remaining_amount
              FROM treasury_payment_requests pr
              JOIN treasury_apps a ON a.id = pr.app_id
              LEFT JOIN treasury_admins admin ON admin.id = pr.received_by_admin_id
              LEFT JOIN treasury_accounts revenue ON revenue.id = pr.revenue_account_id
+             LEFT JOIN (
+                 SELECT request_id, SUM(amount) AS settled_amount
+                 FROM treasury_request_settlements
+                 WHERE request_type = "payment"
+                 GROUP BY request_id
+             ) settled ON settled.request_id = pr.id
              WHERE pr.request_uuid = :uuid LIMIT 1'
         );
         $stmt->execute(['uuid' => $uuid]);
@@ -119,12 +127,21 @@ final class TreasuryQueryService
         $stmt = Database::pdo()->prepare(
             'SELECT pr.*, a.name AS app_name, a.slug AS app_slug,
                     admin.display_name AS received_by_display_name, admin.rsn AS received_by_rsn,
-                    revenue.code AS revenue_account_code, revenue.name AS revenue_account_name
+                    revenue.code AS revenue_account_code, revenue.name AS revenue_account_name,
+                    COALESCE(settled.settled_amount, 0) AS offset_settled_amount,
+                    GREATEST(pr.amount - COALESCE(settled.settled_amount, 0), 0) AS remaining_amount
              FROM treasury_payment_requests pr
              JOIN treasury_apps a ON a.id = pr.app_id
              JOIN treasury_admins admin ON admin.id = pr.received_by_admin_id
              LEFT JOIN treasury_accounts revenue ON revenue.id = pr.revenue_account_id
+             LEFT JOIN (
+                 SELECT request_id, SUM(amount) AS settled_amount
+                 FROM treasury_request_settlements
+                 WHERE request_type = "payment"
+                 GROUP BY request_id
+             ) settled ON settled.request_id = pr.id
              WHERE ' . $where . '
+               AND GREATEST(pr.amount - COALESCE(settled.settled_amount, 0), 0) > 0
              ORDER BY admin.display_name ASC, pr.received_at ASC'
         );
         $stmt->execute($params);
@@ -300,11 +317,19 @@ final class TreasuryQueryService
         $stmt = Database::pdo()->prepare(
             'SELECT pr.*, a.name AS app_name, a.slug AS app_slug,
                     admin.display_name AS paid_by_display_name, admin.rsn AS paid_by_rsn,
-                    expense.code AS expense_account_code, expense.name AS expense_account_name
+                    expense.code AS expense_account_code, expense.name AS expense_account_name,
+                    COALESCE(settled.settled_amount, 0) AS offset_settled_amount,
+                    GREATEST(pr.amount - COALESCE(settled.settled_amount, 0), 0) AS remaining_amount
              FROM treasury_payout_requests pr
              JOIN treasury_apps a ON a.id = pr.app_id
              LEFT JOIN treasury_admins admin ON admin.id = pr.paid_by_admin_id
              LEFT JOIN treasury_accounts expense ON expense.id = pr.expense_account_id
+             LEFT JOIN (
+                 SELECT request_id, SUM(amount) AS settled_amount
+                 FROM treasury_request_settlements
+                 WHERE request_type = "payout"
+                 GROUP BY request_id
+             ) settled ON settled.request_id = pr.id
              WHERE pr.request_uuid = :uuid LIMIT 1'
         );
         $stmt->execute(['uuid' => $uuid]);

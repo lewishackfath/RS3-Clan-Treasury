@@ -102,7 +102,7 @@ final class ManualLedgerService
             ? $accounts->requirePostingAccount((int)$data['expense_account_id'], ['expense'])
             : $accounts->accountIdByCode('6000');
 
-        return (new LedgerService())->postTransaction([
+        $transaction = (new LedgerService())->postTransaction([
             'app_id' => null,
             'source_type' => 'manual_admin_paid_expense',
             'source_id' => 'admin-expense-' . time() . '-' . bin2hex(random_bytes(3)),
@@ -130,6 +130,9 @@ final class ManualLedgerService
                 'memo' => 'Admin reimbursement owed',
             ],
         ]);
+
+        (new AdminBalanceOffsetService())->autoOffsetForAdmin($paidByAdminId, $postedByAdminId, (string)($data['occurred_at'] ?? 'now'));
+        return $transaction;
     }
 
     public function reimburseAdmin(array $data): array

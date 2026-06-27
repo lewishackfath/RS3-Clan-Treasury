@@ -257,7 +257,8 @@ final class PayoutRequestService
             $pdo->commit();
             $after = $this->getByUuid($uuid);
             AuditService::log('payout_request.paid_by_admin', 'treasury_payout_request', $uuid, $this->format($row), $after, $context, $postedByAdminId);
-            return $after;
+            (new AdminBalanceOffsetService())->autoOffsetForAdmin($adminId, $postedByAdminId, (string)($data['paid_at'] ?? 'now'));
+            return $this->getByUuid($uuid);
         } catch (\Throwable $e) {
             $pdo->rollBack();
             throw $e;
@@ -284,6 +285,10 @@ final class PayoutRequestService
             $accounts = new AccountService();
             $treasuryAccountId = $accounts->accountIdByCode('1000');
             $payableAccountId = $this->payableAccountIdForPayout($row, $paidByAdminId, $accounts);
+            $remainingAmount = max(0, (int)$row['amount'] - $this->settledAmount('payout', (int)$row['id']));
+            if ($remainingAmount <= 0) {
+                throw new \RuntimeException('This payout has already been fully offset/reimbursed.', 409);
+            }
 
             $transaction = (new LedgerService())->postTransaction([
                 'app_id' => (int)$row['app_id'],
@@ -299,7 +304,7 @@ final class PayoutRequestService
                 [
                     'account_id' => $payableAccountId,
                     'direction' => 'debit',
-                    'amount' => (int)$row['amount'],
+                    'amount' => $remainingAmount,
                     'admin_id' => $paidByAdminId,
                     'player_rsn' => $row['payee_rsn'],
                     'memo' => 'Clear reimbursement payable',
@@ -307,7 +312,7 @@ final class PayoutRequestService
                 [
                     'account_id' => $treasuryAccountId,
                     'direction' => 'credit',
-                    'amount' => (int)$row['amount'],
+                    'amount' => $remainingAmount,
                     'admin_id' => $paidByAdminId,
                     'player_rsn' => $row['payee_rsn'],
                     'memo' => 'Reimbursed from official treasury',
@@ -445,6 +450,17 @@ final class PayoutRequestService
         }
 
         return (int)$admin['id'];
+    }
+
+    private function settledAmount(string $requestType, int $requestId): int
+    {
+        $stmt = Database::pdo()->prepare(
+            'SELECT COALESCE(SUM(amount), 0)
+             FROM treasury_request_settlements
+             WHERE request_type = :request_type AND request_id = :request_id'
+        );
+        $stmt->execute(['request_type' => $requestType, 'request_id' => $requestId]);
+        return (int)$stmt->fetchColumn();
     }
 
     private function uniqueTransactionSourceId(int $appId, string $sourceType, string $baseSourceId): string

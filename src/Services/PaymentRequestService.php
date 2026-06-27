@@ -251,7 +251,8 @@ final class PaymentRequestService
 
             $after = $this->getByUuid($uuid);
             AuditService::log('payment_request.received', 'treasury_payment_request', $uuid, $this->format($row), $after, $context, $postedByAdminId);
-            return $after;
+            (new AdminBalanceOffsetService())->autoOffsetForAdmin($adminId, $postedByAdminId, (string)($data['received_at'] ?? 'now'));
+            return $this->getByUuid($uuid);
         } catch (\Throwable $e) {
             $pdo->rollBack();
             throw $e;
