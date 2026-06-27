@@ -122,7 +122,7 @@ final class ManualLedgerService
                 'memo' => 'Manual admin-paid expense',
             ],
             [
-                'account_id' => $accounts->accountIdByCode('2000'),
+                'account_id' => $accounts->ensureAdminPayableAccount($paidByAdminId),
                 'direction' => 'credit',
                 'amount' => $amount,
                 'admin_id' => $paidByAdminId,
@@ -154,7 +154,7 @@ final class ManualLedgerService
             'metadata' => ['manual_entry_type' => 'admin_reimbursement', 'reimbursed_admin_id' => $reimbursedAdminId],
         ], [
             [
-                'account_id' => $accounts->accountIdByCode('2000'),
+                'account_id' => $accounts->ensureAdminPayableAccount($reimbursedAdminId),
                 'direction' => 'debit',
                 'amount' => $amount,
                 'admin_id' => $reimbursedAdminId,

@@ -1222,6 +1222,37 @@ function render_dashboard(TreasuryQueryService $query, array $admins): void
                 </div>
             <?php endif; ?>
         </div>
+        <div class="card">
+            <div class="section-header">
+                <h2>Money owed to admins</h2>
+                <a class="button small" href="<?= h(url_for('payouts', ['status' => 'paid_by_admin'])) ?>">View reimbursements</a>
+            </div>
+            <?php if (!$balances['admin_reimbursements_breakdown'] && empty($balances['legacy_admin_reimbursements_payable'])): ?>
+                <p class="muted">No admin-paid money is currently owed by the treasury.</p>
+            <?php else: ?>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Admin</th><th class="right">Treasury Owes</th><th></th></tr></thead>
+                        <tbody>
+                        <?php foreach ($balances['admin_reimbursements_breakdown'] as $row): ?>
+                            <tr>
+                                <td><?= h($row['display_name'] ?: $row['rsn']) ?></td>
+                                <td class="right amount"><?= h(GP::format($row['balance'])) ?></td>
+                                <td class="right"><a href="<?= h(url_for('payouts', ['status' => 'paid_by_admin'])) ?>">Reimburse</a></td>
+                            </tr>
+                        <?php endforeach; ?>
+                        <?php if (!empty($balances['legacy_admin_reimbursements_payable'])): ?>
+                            <tr>
+                                <td>Legacy shared payable<small>Created before per-admin payable accounts</small></td>
+                                <td class="right amount"><?= h(GP::format($balances['legacy_admin_reimbursements_payable'])) ?></td>
+                                <td class="right"><a href="<?= h(url_for('transactions')) ?>">Review ledger</a></td>
+                            </tr>
+                        <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php endif; ?>
+        </div>
     </section>
 
     <section class="card">

@@ -122,7 +122,9 @@ final class AdminService
             throw $e;
         }
 
-        (new AccountService())->ensureAdminHeldAccount($id);
+        $accounts = new AccountService();
+        $accounts->ensureAdminHeldAccount($id);
+        $accounts->ensureAdminPayableAccount($id);
 
         $created = $this->get($id);
         AuditService::log('user.created', 'treasury_admin', (string)$id, null, $created, null, $actorAdminId ?? $id);
@@ -164,7 +166,7 @@ final class AdminService
         }
 
         $after = $this->get($id);
-        $this->syncAdminHeldAccountName($id, $after);
+        $this->syncAdminAccountNames($id, $after);
         AuditService::log('user.updated', 'treasury_admin', (string)$id, $before, $after, null, $actorAdminId);
         return $after;
     }
@@ -481,11 +483,15 @@ final class AdminService
         }
     }
 
-    private function syncAdminHeldAccountName(int $adminId, array $admin): void
+    private function syncAdminAccountNames(int $adminId, array $admin): void
     {
-        $name = 'Funds Owed by Admin - ' . ((string)($admin['display_name'] ?? '') ?: (string)($admin['rsn'] ?? ''));
+        $label = ((string)($admin['display_name'] ?? '') ?: (string)($admin['rsn'] ?? ''));
+
         $stmt = Database::pdo()->prepare('UPDATE treasury_accounts SET name = :name WHERE admin_id = :admin_id AND account_type = "asset" AND code LIKE "1100:%"');
-        $stmt->execute(['name' => $name, 'admin_id' => $adminId]);
+        $stmt->execute(['name' => 'Funds Owed by Admin - ' . $label, 'admin_id' => $adminId]);
+
+        $stmt = Database::pdo()->prepare('UPDATE treasury_accounts SET name = :name WHERE admin_id = :admin_id AND account_type = "liability" AND code LIKE "2000:%"');
+        $stmt->execute(['name' => 'Funds Owed to Admin - ' . $label, 'admin_id' => $adminId]);
     }
 
     private function usageCount(int $id): int

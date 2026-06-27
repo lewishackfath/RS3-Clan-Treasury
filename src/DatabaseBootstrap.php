@@ -10,7 +10,7 @@ use Treasury\Support\Env;
 
 final class DatabaseBootstrap
 {
-    private const SCHEMA_VERSION = '2026.06.27.multi-rsn-profile-screens';
+    private const SCHEMA_VERSION = '2026.06.27.per-admin-payables';
 
     private const SYSTEM_APPS = [
         [
@@ -23,7 +23,7 @@ final class DatabaseBootstrap
     private const SYSTEM_ACCOUNTS = [
         ['code' => '1000', 'name' => 'Official Treasury', 'account_type' => 'asset', 'normal_balance' => 'debit', 'parent_code' => null],
         ['code' => '1100', 'name' => 'Admin Funds Owed to Treasury', 'account_type' => 'asset', 'normal_balance' => 'debit', 'parent_code' => null],
-        ['code' => '2000', 'name' => 'Admin Reimbursements Payable', 'account_type' => 'liability', 'normal_balance' => 'credit', 'parent_code' => null],
+        ['code' => '2000', 'name' => 'Admin Funds Owed by Treasury', 'account_type' => 'liability', 'normal_balance' => 'credit', 'parent_code' => null],
         ['code' => '3000', 'name' => 'Opening Balance Equity', 'account_type' => 'equity', 'normal_balance' => 'credit', 'parent_code' => null],
         ['code' => '4000', 'name' => 'Revenue', 'account_type' => 'income', 'normal_balance' => 'credit', 'parent_code' => null],
         ['code' => '5000', 'name' => 'Expenses', 'account_type' => 'expense', 'normal_balance' => 'debit', 'parent_code' => null],
@@ -457,6 +457,55 @@ final class DatabaseBootstrap
                 'normal_balance' => $account['normal_balance'],
             ]);
         }
+
+        self::syncPerAdminSystemAccounts($pdo);
+    }
+
+    private static function syncPerAdminSystemAccounts(PDO $pdo): void
+    {
+        $heldParentId = self::accountIdByCode($pdo, '1100');
+        $payableParentId = self::accountIdByCode($pdo, '2000');
+        $admins = $pdo->query('SELECT id, rsn, display_name FROM treasury_admins')->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($admins as $admin) {
+            $adminId = (int)$admin['id'];
+            $label = ((string)($admin['display_name'] ?? '') ?: (string)($admin['rsn'] ?? ''));
+
+            $stmt = $pdo->prepare(
+                'INSERT INTO treasury_accounts (code, name, account_type, parent_account_id, admin_id, normal_balance, is_system, is_active)
+                 VALUES (:code, :name, "asset", :parent_id, :admin_id, "debit", 1, 1)
+                 ON DUPLICATE KEY UPDATE name = VALUES(name), parent_account_id = VALUES(parent_account_id), admin_id = VALUES(admin_id), is_system = 1, is_active = 1'
+            );
+            $stmt->execute([
+                'code' => '1100:' . $adminId,
+                'name' => 'Funds Owed by Admin - ' . $label,
+                'parent_id' => $heldParentId,
+                'admin_id' => $adminId,
+            ]);
+
+            $stmt = $pdo->prepare(
+                'INSERT INTO treasury_accounts (code, name, account_type, parent_account_id, admin_id, normal_balance, is_system, is_active)
+                 VALUES (:code, :name, "liability", :parent_id, :admin_id, "credit", 1, 1)
+                 ON DUPLICATE KEY UPDATE name = VALUES(name), parent_account_id = VALUES(parent_account_id), admin_id = VALUES(admin_id), is_system = 1, is_active = 1'
+            );
+            $stmt->execute([
+                'code' => '2000:' . $adminId,
+                'name' => 'Funds Owed to Admin - ' . $label,
+                'parent_id' => $payableParentId,
+                'admin_id' => $adminId,
+            ]);
+        }
+    }
+
+    private static function accountIdByCode(PDO $pdo, string $code): int
+    {
+        $stmt = $pdo->prepare('SELECT id FROM treasury_accounts WHERE code = :code LIMIT 1');
+        $stmt->execute(['code' => $code]);
+        $id = $stmt->fetchColumn();
+        if (!$id) {
+            throw new \RuntimeException('Required treasury account missing: ' . $code);
+        }
+        return (int)$id;
     }
 
     private static function syncAdminRsnHistory(PDO $pdo): void

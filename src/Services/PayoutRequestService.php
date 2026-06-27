@@ -199,7 +199,7 @@ final class PayoutRequestService
             }
 
             $accounts = new AccountService();
-            $payableAccountId = $accounts->accountIdByCode('2000');
+            $payableAccountId = $accounts->ensureAdminPayableAccount($adminId);
             $expenseAccountId = !empty($row['expense_account_id'])
                 ? $accounts->requirePostingAccount((int)$row['expense_account_id'], ['expense'])
                 : $accounts->defaultExpenseAccountId((int)$row['app_id'], (string)$row['payout_type']);
@@ -283,7 +283,7 @@ final class PayoutRequestService
             $paidByAdminId = (int)$row['paid_by_admin_id'];
             $accounts = new AccountService();
             $treasuryAccountId = $accounts->accountIdByCode('1000');
-            $payableAccountId = $accounts->accountIdByCode('2000');
+            $payableAccountId = $this->payableAccountIdForPayout($row, $paidByAdminId, $accounts);
 
             $transaction = (new LedgerService())->postTransaction([
                 'app_id' => (int)$row['app_id'],
@@ -385,6 +385,35 @@ final class PayoutRequestService
         }
     }
 
+
+    private function payableAccountIdForPayout(array $row, int $adminId, AccountService $accounts): int
+    {
+        $paidTransactionId = (int)($row['paid_transaction_id'] ?? 0);
+        if ($paidTransactionId > 0) {
+            $stmt = Database::pdo()->prepare(
+                'SELECT le.account_id
+                 FROM treasury_ledger_entries le
+                 INNER JOIN treasury_accounts acc ON acc.id = le.account_id
+                 WHERE le.transaction_id = :transaction_id
+                   AND le.admin_id = :admin_id
+                   AND le.direction = "credit"
+                   AND acc.account_type = "liability"
+                   AND (acc.code = "2000" OR acc.code LIKE "2000:%")
+                 ORDER BY CASE WHEN acc.code LIKE "2000:%" THEN 0 ELSE 1 END, le.id ASC
+                 LIMIT 1'
+            );
+            $stmt->execute([
+                'transaction_id' => $paidTransactionId,
+                'admin_id' => $adminId,
+            ]);
+            $id = $stmt->fetchColumn();
+            if ($id) {
+                return (int)$id;
+            }
+        }
+
+        return $accounts->ensureAdminPayableAccount($adminId);
+    }
 
     private function shouldAutoPayByAdmin(array $data): bool
     {

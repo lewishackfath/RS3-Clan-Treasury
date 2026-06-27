@@ -205,13 +205,13 @@ Admin pays a prize or expense personally:
 
 ```text
 Debit:  Prize/General Expense
-Credit: Admin Reimbursements Payable
+Credit: Admin Funds Owed by Treasury
 ```
 
 Admin is reimbursed:
 
 ```text
-Debit:  Admin Reimbursements Payable
+Debit:  Admin Funds Owed by Treasury
 Credit: Official Treasury
 ```
 
@@ -313,7 +313,7 @@ The bootstrapper is intentionally strict about what it creates. It creates only:
 - Required locked system accounts:
   - `1000` Official Treasury
   - `1100` Admin Held Funds
-  - `2000` Admin Reimbursements Payable
+  - `2000` Admin Funds Owed by Treasury
   - `3000` Opening Balance Equity
   - `4000` Revenue
   - `5000` Expenses
@@ -646,3 +646,17 @@ UI changes:
 ## Profile form alignment hotfix
 
 This build adds a small UI alignment fix for profile and treasury-user edit forms so field labels, inputs, helper text, and save actions line up cleanly.
+
+
+## Per-admin funds owed to admins
+
+Admin-paid payouts and manual admin-paid expenses now use per-admin liability accounts under `2000 Admin Funds Owed by Treasury`, matching the existing per-admin asset accounts under `1100 Admin Funds Owed to Treasury`.
+
+This means:
+
+- GP received by an admin is tracked against `1100:{admin_id}` until handed over to the official treasury.
+- GP paid personally by an admin is tracked against `2000:{admin_id}` until the treasury reimburses them.
+- The dashboard shows both "Money owed by admins" and "Money owed to admins" breakdowns.
+- Existing older entries against the shared `2000` account are still included in the total as legacy payable balance.
+
+No manual migration is required when DB Bootstrap is enabled.
