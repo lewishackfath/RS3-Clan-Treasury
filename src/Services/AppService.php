@@ -14,6 +14,7 @@ final class AppService
 
     public const AVAILABLE_SCOPES = [
         'payments:create' => 'Create money-in requests',
+        'payments:receive' => 'Mark money-in requests as received by an admin',
         'payments:read' => 'Read money-in request status',
         'payouts:create' => 'Create money-out requests',
         'payouts:read' => 'Read money-out request status',
@@ -303,6 +304,56 @@ final class AppService
             ->execute(['active' => $active ? 1 : 0, 'id' => $keyId]);
         $after = $this->apiKey($keyId);
         AuditService::log($active ? 'api_key.restored' : 'api_key.revoked', 'treasury_api_key', (string)$keyId, $before, $after, null, $actorAdminId);
+    }
+
+    public function updateApiKey(int $keyId, array $data, int $actorAdminId): array
+    {
+        $before = $this->apiKey($keyId);
+        $keyName = trim((string)($data['key_name'] ?? ''));
+        if ($keyName === '') {
+            throw new \InvalidArgumentException('API key name is required.');
+        }
+
+        $scopes = $this->normaliseScopes($data['scopes'] ?? []);
+        if (!$scopes) {
+            throw new \InvalidArgumentException('Choose at least one API scope.');
+        }
+
+        $expiresAt = $this->normaliseExpiry((string)($data['expires_at'] ?? ''));
+        Database::pdo()->prepare(
+            'UPDATE treasury_api_keys
+             SET key_name = :key_name, scopes = :scopes, expires_at = :expires_at
+             WHERE id = :id'
+        )->execute([
+            'key_name' => $keyName,
+            'scopes' => json_encode($scopes, JSON_UNESCAPED_SLASHES),
+            'expires_at' => $expiresAt,
+            'id' => $keyId,
+        ]);
+
+        $after = $this->apiKey($keyId);
+        AuditService::log('api_key.updated', 'treasury_api_key', (string)$keyId, $before, $after, null, $actorAdminId);
+        return $after;
+    }
+
+    public function regenerateApiKey(int $keyId, int $actorAdminId): array
+    {
+        $before = $this->apiKey($keyId);
+        $rawKey = 'trsy_' . bin2hex(random_bytes(32));
+        $keyHash = hash('sha256', $rawKey);
+
+        Database::pdo()->prepare(
+            'UPDATE treasury_api_keys
+             SET key_hash = :key_hash, is_active = 1
+             WHERE id = :id'
+        )->execute([
+            'key_hash' => $keyHash,
+            'id' => $keyId,
+        ]);
+
+        $after = $this->apiKey($keyId);
+        AuditService::log('api_key.regenerated', 'treasury_api_key', (string)$keyId, $before, $after, null, $actorAdminId);
+        return ['raw_key' => $rawKey, 'record' => $after];
     }
 
     public function deleteApiKey(int $keyId, int $actorAdminId): void

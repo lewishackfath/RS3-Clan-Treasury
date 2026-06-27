@@ -52,6 +52,26 @@ final class AdminService
         return $row ?: null;
     }
 
+
+    public function findByRsn(string $rsn): ?array
+    {
+        $rsn = $this->cleanRsn($rsn);
+        if ($rsn === '') {
+            return null;
+        }
+
+        $stmt = Database::pdo()->prepare(
+            'SELECT * FROM treasury_admins
+             WHERE LOWER(rsn) = LOWER(:rsn) AND is_active = 1
+             ORDER BY id ASC
+             LIMIT 1'
+        );
+        $stmt->execute(['rsn' => $rsn]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row ?: null;
+    }
+
     public function create(array $data, ?int $actorAdminId = null): array
     {
         $rsn = $this->cleanRsn((string)($data['rsn'] ?? ''));

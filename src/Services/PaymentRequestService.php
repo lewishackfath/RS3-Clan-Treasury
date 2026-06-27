@@ -15,10 +15,18 @@ final class PaymentRequestService
     {
         $data = $this->normaliseCreateData($data);
         $this->validateCreate($data);
+
+        if ($this->shouldAutoReceive($data) && !$context->can('payments:receive')) {
+            throw new \RuntimeException('API key does not have required scope: payments:receive', 403);
+        }
+
         $pdo = Database::pdo();
 
         $existing = $this->findBySource($context->appId, $data['source_type'], $data['source_id']);
         if ($existing) {
+            if ($this->shouldAutoReceive($data) && $existing['status'] === 'pending') {
+                return $this->receiveFromApi($existing['request_uuid'], $context, $data);
+            }
             return $existing;
         }
 
@@ -53,6 +61,10 @@ final class PaymentRequestService
 
         $created = $this->getByUuid($uuid);
         AuditService::log('payment_request.created', 'treasury_payment_request', $uuid, null, $created, $context);
+
+        if ($this->shouldAutoReceive($data)) {
+            return $this->receiveFromApi($uuid, $context, $data);
+        }
 
         return $created;
     }
@@ -92,77 +104,18 @@ final class PaymentRequestService
             throw new \InvalidArgumentException('posted_by_admin_id is required');
         }
 
-        $pdo = Database::pdo();
-        $pdo->beginTransaction();
-
-        try {
-            $row = $this->lockByUuid($uuid);
-            if ($row['status'] !== 'pending') {
-                throw new \RuntimeException('Only pending payment requests can be marked as received', 409);
-            }
-
-            $accounts = new AccountService();
-            $heldAccountId = $accounts->ensureAdminHeldAccount($adminId);
-            $incomeAccountId = !empty($row['revenue_account_id'])
-                ? $accounts->requirePostingAccount((int)$row['revenue_account_id'], ['income'])
-                : $accounts->defaultRevenueAccountId((int)$row['app_id'], (string)$row['purpose']);
-
-            $ledger = new LedgerService();
-            $transaction = $ledger->postTransaction([
-                'app_id' => (int)$row['app_id'],
-                'source_type' => 'payment_request',
-                'source_id' => $this->uniqueTransactionSourceId((int)$row['app_id'], 'payment_request', $row['request_uuid']),
-                'transaction_type' => $row['purpose'] === 'entry_fee' ? 'entry_fee' : 'contribution',
-                'description' => $row['description'],
-                'notes' => $data['notes'] ?? null,
-                'occurred_at' => $data['received_at'] ?? 'now',
-                'posted_by_admin_id' => $postedByAdminId,
-                'metadata' => ['payment_request_id' => (int)$row['id']],
-            ], [
-                [
-                    'account_id' => $heldAccountId,
-                    'direction' => 'debit',
-                    'amount' => (int)$row['amount'],
-                    'admin_id' => $adminId,
-                    'player_rsn' => $row['player_rsn'],
-                    'memo' => 'GP held by admin and owed to treasury',
-                ],
-                [
-                    'account_id' => $incomeAccountId,
-                    'direction' => 'credit',
-                    'amount' => (int)$row['amount'],
-                    'player_rsn' => $row['player_rsn'],
-                    'memo' => $row['description'],
-                ],
-            ]);
-
-            $update = $pdo->prepare(
-                'UPDATE treasury_payment_requests
-                 SET status = "received_by_admin",
-                     received_by_admin_id = :admin_id,
-                     received_transaction_id = :transaction_id,
-                     received_at = :received_at
-                 WHERE id = :id'
-            );
-            $update->execute([
-                'admin_id' => $adminId,
-                'transaction_id' => $transaction['id'],
-                'received_at' => $this->normaliseDateTime($data['received_at'] ?? 'now'),
-                'id' => $row['id'],
-            ]);
-
-            $pdo->commit();
-
-            $after = $this->getByUuid($uuid);
-            AuditService::log('payment_request.received', 'treasury_payment_request', $uuid, $this->format($row), $after, null, $postedByAdminId);
-            return $after;
-        } catch (\Throwable $e) {
-            $pdo->rollBack();
-            throw $e;
-        }
+        return $this->receiveInternal($uuid, $adminId, $data, $postedByAdminId, null);
     }
 
+    public function receiveFromApi(string $uuid, ApiContext $context, array $data): array
+    {
+        if (!$context->can('payments:receive')) {
+            throw new \RuntimeException('API key does not have required scope: payments:receive', 403);
+        }
 
+        $adminId = $this->resolveReceivedByAdminId($data);
+        return $this->receiveInternal($uuid, $adminId, $data, null, $context);
+    }
 
     public function cancel(string $uuid, int $adminId, ?string $notes = null): array
     {
@@ -210,6 +163,132 @@ final class PaymentRequestService
         }
     }
 
+    public function getBySource(int $appId, string $sourceType, string $sourceId): array
+    {
+        $result = $this->findBySource($appId, $sourceType, $sourceId);
+        if (!$result) {
+            throw new \RuntimeException('Payment request not found', 404);
+        }
+        return $result;
+    }
+
+    private function receiveInternal(string $uuid, int $adminId, array $data, ?int $postedByAdminId, ?ApiContext $context): array
+    {
+        if ($adminId <= 0) {
+            throw new \InvalidArgumentException('received_by_admin_id or received_by_admin_rsn is required');
+        }
+
+        $pdo = Database::pdo();
+        $pdo->beginTransaction();
+
+        try {
+            $row = $this->lockByUuid($uuid);
+            if ($row['status'] !== 'pending') {
+                if (in_array($row['status'], ['received_by_admin', 'reconciled_to_treasury'], true)
+                    && (int)($row['received_by_admin_id'] ?? 0) === $adminId) {
+                    $pdo->commit();
+                    return $this->getByUuid($uuid);
+                }
+                throw new \RuntimeException('Only pending payment requests can be marked as received', 409);
+            }
+
+            $accounts = new AccountService();
+            $heldAccountId = $accounts->ensureAdminHeldAccount($adminId);
+            $incomeAccountId = !empty($row['revenue_account_id'])
+                ? $accounts->requirePostingAccount((int)$row['revenue_account_id'], ['income'])
+                : $accounts->defaultRevenueAccountId((int)$row['app_id'], (string)$row['purpose']);
+
+            $ledger = new LedgerService();
+            $transaction = $ledger->postTransaction([
+                'app_id' => (int)$row['app_id'],
+                'source_type' => 'payment_request',
+                'source_id' => $this->uniqueTransactionSourceId((int)$row['app_id'], 'payment_request', $row['request_uuid']),
+                'transaction_type' => $row['purpose'] === 'entry_fee' ? 'entry_fee' : 'contribution',
+                'description' => $row['description'],
+                'notes' => $data['notes'] ?? null,
+                'occurred_at' => $data['received_at'] ?? 'now',
+                'posted_by_admin_id' => $postedByAdminId,
+                'metadata' => [
+                    'payment_request_id' => (int)$row['id'],
+                    'received_via_api' => $context !== null,
+                    'received_api_app_id' => $context?->appId,
+                    'received_api_key_id' => $context?->apiKeyId,
+                ],
+            ], [
+                [
+                    'account_id' => $heldAccountId,
+                    'direction' => 'debit',
+                    'amount' => (int)$row['amount'],
+                    'admin_id' => $adminId,
+                    'player_rsn' => $row['player_rsn'],
+                    'memo' => 'GP held by admin and owed to treasury',
+                ],
+                [
+                    'account_id' => $incomeAccountId,
+                    'direction' => 'credit',
+                    'amount' => (int)$row['amount'],
+                    'player_rsn' => $row['player_rsn'],
+                    'memo' => $row['description'],
+                ],
+            ]);
+
+            $update = $pdo->prepare(
+                'UPDATE treasury_payment_requests
+                 SET status = "received_by_admin",
+                     received_by_admin_id = :admin_id,
+                     received_transaction_id = :transaction_id,
+                     received_at = :received_at
+                 WHERE id = :id'
+            );
+            $update->execute([
+                'admin_id' => $adminId,
+                'transaction_id' => $transaction['id'],
+                'received_at' => $this->normaliseDateTime($data['received_at'] ?? 'now'),
+                'id' => $row['id'],
+            ]);
+
+            $pdo->commit();
+
+            $after = $this->getByUuid($uuid);
+            AuditService::log('payment_request.received', 'treasury_payment_request', $uuid, $this->format($row), $after, $context, $postedByAdminId);
+            return $after;
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    private function shouldAutoReceive(array $data): bool
+    {
+        return !empty($data['received_by_admin_id'])
+            || !empty($data['received_by_admin_rsn'])
+            || !empty($data['received_by_rsn'])
+            || !empty($data['received_by']);
+    }
+
+    private function resolveReceivedByAdminId(array $data): int
+    {
+        $id = (int)($data['received_by_admin_id'] ?? $data['admin_id'] ?? 0);
+        if ($id > 0) {
+            $admin = (new AdminService())->get($id);
+            if ((int)($admin['is_active'] ?? 0) !== 1) {
+                throw new \InvalidArgumentException('Received-by admin is archived. Restore the user before using them in API receipts.');
+            }
+            return $id;
+        }
+
+        $rsn = trim((string)($data['received_by_admin_rsn'] ?? $data['received_by_rsn'] ?? $data['received_by'] ?? ''));
+        if ($rsn === '') {
+            throw new \InvalidArgumentException('received_by_admin_rsn is required when marking a payment as received via API');
+        }
+
+        $admin = (new AdminService())->findByRsn($rsn);
+        if (!$admin) {
+            throw new \InvalidArgumentException('No active treasury user found for received_by_admin_rsn: ' . $rsn);
+        }
+
+        return (int)$admin['id'];
+    }
 
     private function uniqueTransactionSourceId(int $appId, string $sourceType, string $baseSourceId): string
     {
@@ -266,15 +345,6 @@ final class PaymentRequestService
         }
     }
 
-    public function getBySource(int $appId, string $sourceType, string $sourceId): array
-    {
-        $result = $this->findBySource($appId, $sourceType, $sourceId);
-        if (!$result) {
-            throw new \RuntimeException('Payment request not found', 404);
-        }
-        return $result;
-    }
-
     private function findBySource(int $appId, string $sourceType, string $sourceId): ?array
     {
         $stmt = Database::pdo()->prepare(
@@ -310,8 +380,6 @@ final class PaymentRequestService
         }
         return $row;
     }
-
-
 
     private function hydrateRow(array $row): array
     {

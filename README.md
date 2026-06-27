@@ -248,7 +248,7 @@ X-Admin-Token: <ADMIN_API_TOKEN from .env>
 Create an API key when you are ready to integrate a source app:
 
 ```bash
-php bin/create-api-key.php bingo "Bingo Production" "payments:create,payouts:create,transactions:read,reconciliation:read"
+php bin/create-api-key.php bingo "Bingo Production" "payments:create,payments:receive,payouts:create,transactions:read,reconciliation:read"
 ```
 
 ## Important rule
@@ -417,7 +417,7 @@ https://your-treasury-domain.example/api-docs.php
 
 Use this page as the live contract when building Bingo, Runes of Power, or future source-app integrations.
 
-API v1 lets source apps create request records and read status only. External apps cannot receive GP, pay prizes, reconcile, reverse, or post ledger transactions directly.
+API v1 lets source apps create request records, read status, and optionally mark Money In as received by a named active treasury user when the API key has the dedicated `payments:receive` scope. External apps still cannot pay prizes, reconcile treasury handovers, reverse records, or post arbitrary ledger transactions.
 
 Authenticate with:
 
@@ -456,7 +456,44 @@ POST /api/v1/money-in-requests
 
 Required scope: `payments:create`.
 
+If the source app already knows the GP was physically received by an admin, include `received_by_admin_rsn` and grant the API key both `payments:create` and `payments:receive`:
+
+```json
+{
+  "source_type": "runes_of_power_entry",
+  "source_id": "entry_123",
+  "payer_rsn": "PlayerX",
+  "amount": 1000000,
+  "description": "Runes of Power entry fee",
+  "revenue_account_code": "4100",
+  "received_by_admin_rsn": "Lodo",
+  "received_at": "2026-06-27T10:58:00+10:00",
+  "metadata": {
+    "draw_id": 8,
+    "entry_id": 123
+  }
+}
+```
+
+This creates the request as `received_by_admin`, posts the revenue, and records the GP as owed to treasury by the named admin until it is handed over/reconciled in Treasury.
+
 The older alias `POST /api/v1/payment-requests` is still supported.
+
+### Mark existing Money In request as received
+
+```http
+POST /api/v1/money-in-requests/{request_uuid}/receive
+```
+
+```json
+{
+  "received_by_admin_rsn": "Lodo",
+  "received_at": "2026-06-27T10:58:00+10:00",
+  "notes": "Received in-game by Lodo"
+}
+```
+
+Required scope: `payments:receive`.
 
 ### Read Money In request
 
@@ -539,3 +576,15 @@ When source apps are created from the web UI, the slug is generated automaticall
 ## Admin-held GP wording
 
 Money received by an admin is treated as **money owed by that admin to the official treasury**. Reconciliation/handover should only be recorded when that GP has actually been transferred into the official clan treasury. Treasury users can record GP as being held by another admin, even if that admin does not have app access.
+
+## Integration and API key UI cleanup
+
+This build separates integration management from API key management.
+
+- **Integrations** replaces the old Source Apps page name and manages source apps/integrations.
+- **API Keys** is now a separate page for creating, editing, revoking, restoring, deleting, and regenerating API keys.
+- API key permissions/scopes and expiry dates can be edited without changing the raw key.
+- Regenerating an API key immediately replaces the stored hash and displays the new raw key once. Existing clients using the previous raw key will stop working.
+- The sidebar is grouped into workflow categories to make the app easier to navigate.
+
+No database migration is required.

@@ -140,8 +140,36 @@ function nav_items(): array
         'reports' => 'Reports',
         'chart_accounts' => 'Chart of Accounts',
         'users' => 'Users',
-        'source_apps' => 'Source Apps',
+        'integrations' => 'Integrations',
+        'api_keys' => 'API Keys',
         'settings' => 'Settings',
+    ];
+}
+
+function nav_categories(): array
+{
+    return [
+        'Treasury' => [
+            'dashboard' => 'Overview',
+            'payments' => 'Money in',
+            'payouts' => 'Money out',
+            'reconciliation' => 'Bank reconciliation',
+            'transactions' => 'Ledger',
+        ],
+        'Reporting' => [
+            'reports' => 'Reports',
+        ],
+        'Management' => [
+            'chart_accounts' => 'Chart of Accounts',
+            'users' => 'Users',
+        ],
+        'Integrations' => [
+            'integrations' => 'Integrations',
+            'api_keys' => 'API Keys',
+        ],
+        'System' => [
+            'settings' => 'Settings',
+        ],
     ];
 }
 
@@ -162,7 +190,9 @@ function page_title(string $page): string
         'reconciliation_detail' => 'Handover detail',
         'transaction_detail' => 'Transaction detail',
         'reports' => 'Reports',
-        'source_apps' => 'Source Apps & API Keys',
+        'integrations' => 'Integrations',
+        'api_keys' => 'API Keys',
+        'source_apps' => 'Integrations',
     ][$page] ?? (nav_items()[$page] ?? ucwords(str_replace('_', ' ', $page)));
 }
 
@@ -175,7 +205,9 @@ function page_description(string $page): string
         'reconciliation' => 'Record GP handed over by admins into the official treasury with a clear audit trail.',
         'transactions' => 'Review posted ledger entries and reverse mistakes safely.',
         'settings' => 'Review Discord login status and app configuration.',
-        'source_apps' => 'Manage source applications, API keys, scopes, and integration access.',
+        'integrations' => 'Manage source applications/integrations that can connect to Treasury.',
+        'api_keys' => 'Manage API keys, scopes, expiry dates, and key regeneration for integrations.',
+        'source_apps' => 'Manage source applications/integrations that can connect to Treasury.',
         'reports' => 'Review revenue, expenses, official treasury movement, money owed by admins, and account activity.',
         'chart_accounts' => 'Manage revenue and expense ledger accounts used to categorise GP transactions.',
         'users' => 'Manage treasury users, Discord links, active status, and RSN changes.',
@@ -454,48 +486,58 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 
             case 'create_app':
                 (new AppService())->create($_POST);
-                Flash::add('success', 'Source app created.');
-                redirect_to('source_apps');
+                Flash::add('success', 'Integration created.');
+                redirect_to('integrations');
 
             case 'update_app':
                 (new AppService())->update((int)($_POST['app_id'] ?? 0), $_POST, require_acting_admin());
-                Flash::add('success', 'Source app updated.');
-                redirect_to('source_apps');
+                Flash::add('success', 'Integration updated.');
+                redirect_to('integrations');
 
             case 'archive_app':
                 (new AppService())->setActive((int)($_POST['app_id'] ?? 0), false, require_acting_admin());
-                Flash::add('success', 'Source app archived.');
-                redirect_to('source_apps');
+                Flash::add('success', 'Integration archived.');
+                redirect_to('integrations');
 
             case 'restore_app':
                 (new AppService())->setActive((int)($_POST['app_id'] ?? 0), true, require_acting_admin());
-                Flash::add('success', 'Source app restored.');
-                redirect_to('source_apps');
+                Flash::add('success', 'Integration restored.');
+                redirect_to('integrations');
 
             case 'delete_app':
                 (new AppService())->deleteIfUnused((int)($_POST['app_id'] ?? 0), require_acting_admin());
-                Flash::add('success', 'Unused source app deleted.');
-                redirect_to('source_apps');
+                Flash::add('success', 'Unused integration deleted.');
+                redirect_to('integrations');
 
             case 'create_api_key':
                 $createdKey = (new AppService())->createApiKey($_POST, require_acting_admin());
                 Flash::add('success', 'API key created. Copy it now; it will not be shown again: ' . $createdKey['raw_key']);
-                redirect_to('source_apps');
+                redirect_to('api_keys');
+
+            case 'update_api_key':
+                (new AppService())->updateApiKey((int)($_POST['api_key_id'] ?? 0), $_POST, require_acting_admin());
+                Flash::add('success', 'API key permissions updated.');
+                redirect_to('api_keys');
+
+            case 'regenerate_api_key':
+                $regeneratedKey = (new AppService())->regenerateApiKey((int)($_POST['api_key_id'] ?? 0), require_acting_admin());
+                Flash::add('success', 'API key regenerated. Copy it now; it will not be shown again: ' . $regeneratedKey['raw_key']);
+                redirect_to('api_keys');
 
             case 'revoke_api_key':
                 (new AppService())->setApiKeyActive((int)($_POST['api_key_id'] ?? 0), false, require_acting_admin());
                 Flash::add('success', 'API key revoked.');
-                redirect_to('source_apps');
+                redirect_to('api_keys');
 
             case 'restore_api_key':
                 (new AppService())->setApiKeyActive((int)($_POST['api_key_id'] ?? 0), true, require_acting_admin());
                 Flash::add('success', 'API key restored.');
-                redirect_to('source_apps');
+                redirect_to('api_keys');
 
             case 'delete_api_key':
                 (new AppService())->deleteApiKey((int)($_POST['api_key_id'] ?? 0), require_acting_admin());
                 Flash::add('success', 'Unused API key deleted.');
-                redirect_to('source_apps');
+                redirect_to('api_keys');
 
             case 'create_account':
                 (new AccountService())->createPostingAccount($_POST, require_acting_admin());
@@ -697,6 +739,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 
 $appName = Env::get('APP_NAME', 'RS3 GP Treasury');
 $page = current_page();
+if ($page === 'source_apps') {
+    $page = 'integrations';
+}
 $loggedIn = AdminSession::isLoggedIn();
 if (!$loggedIn && !in_array($page, ['login', 'discord_login', 'discord_callback'], true)) {
     $page = 'login';
@@ -738,21 +783,31 @@ $expenseAccounts = $loggedIn ? $accountService->postingAccounts('expense') : [];
             </div>
         </div>
         <nav>
-            <div class="nav-new <?= str_starts_with($page, 'new_') ? 'active' : '' ?>">
-                <button class="nav-new-trigger" type="button">New</button>
-                <div class="nav-new-menu" role="menu" aria-label="New treasury item">
-                    <a href="<?= h(url_for('new_payment')) ?>">Money-in request</a>
-                    <a href="<?= h(url_for('new_payout')) ?>">Money-out request</a>
-                    <a href="<?= h(url_for('new_opening_balance')) ?>">Treasury adjustment</a>
-                    <a href="<?= h(url_for('new_treasury_expense')) ?>">Treasury expense</a>
-                    <a href="<?= h(url_for('new_admin_paid_expense')) ?>">Admin-paid expense</a>
-                    <a href="<?= h(url_for('new_admin_reimbursement')) ?>">Admin reimbursement</a>
+            <div class="nav-section nav-section-new">
+                <div class="nav-section-label">Create</div>
+                <div class="nav-new <?= str_starts_with($page, 'new_') ? 'active' : '' ?>">
+                    <button class="nav-new-trigger" type="button">New</button>
+                    <div class="nav-new-menu" role="menu" aria-label="New treasury item">
+                        <a href="<?= h(url_for('new_payment')) ?>">Money-in request</a>
+                        <a href="<?= h(url_for('new_payout')) ?>">Money-out request</a>
+                        <a href="<?= h(url_for('new_opening_balance')) ?>">Treasury adjustment</a>
+                        <a href="<?= h(url_for('new_treasury_expense')) ?>">Treasury expense</a>
+                        <a href="<?= h(url_for('new_admin_paid_expense')) ?>">Admin-paid expense</a>
+                        <a href="<?= h(url_for('new_admin_reimbursement')) ?>">Admin reimbursement</a>
+                    </div>
                 </div>
             </div>
-            <?php foreach (nav_items() as $key => $label): ?>
-                <a class="<?= $page === $key ? 'active' : '' ?>" href="<?= h(url_for($key)) ?>"><?= h($label) ?></a>
+            <?php foreach (nav_categories() as $category => $items): ?>
+                <div class="nav-section">
+                    <div class="nav-section-label"><?= h($category) ?></div>
+                    <?php foreach ($items as $key => $label): ?>
+                        <a class="<?= $page === $key ? 'active' : '' ?>" href="<?= h(url_for($key)) ?>"><?= h($label) ?></a>
+                    <?php endforeach; ?>
+                    <?php if ($category === 'Integrations'): ?>
+                        <a class="nav-external" href="api-docs.php" target="_blank" rel="noopener">API Docs</a>
+                    <?php endif; ?>
+                </div>
             <?php endforeach; ?>
-            <a href="api-docs.php" target="_blank" rel="noopener">API Docs</a>
         </nav>
     </aside>
 <?php endif; ?>
@@ -860,8 +915,10 @@ $expenseAccounts = $loggedIn ? $accountService->postingAccounts('expense') : [];
         <?php render_chart_accounts((new AccountService())->all(true), $apps); ?>
     <?php elseif ($page === 'users'): ?>
         <?php render_users($allAdmins); ?>
-    <?php elseif ($page === 'source_apps'): ?>
-        <?php render_source_apps($allSourceApps, $apiKeys); ?>
+    <?php elseif ($page === 'integrations'): ?>
+        <?php render_integrations($allSourceApps); ?>
+    <?php elseif ($page === 'api_keys'): ?>
+        <?php render_api_keys($allSourceApps, $apiKeys); ?>
     <?php elseif ($page === 'settings'): ?>
         <?php render_settings($apps); ?>
     <?php else: ?>
@@ -2345,78 +2402,33 @@ function render_account_activity_rows(array $rows): void
     <?php
 }
 
-function render_source_apps(array $apps, array $apiKeys): void
+function render_integrations(array $apps): void
 {
-    $activeApps = array_values(array_filter($apps, fn(array $app): bool => (int)$app['is_active'] === 1 && (string)$app['slug'] !== AppService::SYSTEM_MANUAL_SLUG));
     ?>
-    <section class="grid two">
-        <div class="card">
-            <div class="section-header">
-                <div>
-                    <h2>Create source app</h2>
-                    <p class="muted">Create one source app for each external integration, such as Bingo, Runes of Power, or future clan apps.</p>
-                </div>
+    <section class="card">
+        <div class="section-header">
+            <div>
+                <h2>Create integration</h2>
+                <p class="muted">Create source apps/integrations that can raise Treasury requests through the API. The slug is generated automatically from the name.</p>
             </div>
-            <form method="post" class="grid-form">
-                <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                <input type="hidden" name="action" value="create_app">
-                <label>Name <input name="name" placeholder="Runes of Power" required><small>The slug is generated automatically, for example <code>runes_of_power</code>.</small></label>
-                <label class="wide">Description <input name="description" placeholder="Creates payment and payout requests for this app"></label>
-                <div class="form-actions"><button class="button primary" type="submit">Create source app</button></div>
-            </form>
+            <a class="button" href="api-docs.php" target="_blank" rel="noopener">View API docs</a>
         </div>
-
-        <div class="notice-card">
-            <h2>How source apps work</h2>
-            <p>Manual web entries always use the locked <strong>Manual Entry</strong> source. External apps use their own source app and API keys.</p>
-            <p class="muted">API keys are shown once only. Store generated keys somewhere secure. The treasury stores only a SHA-256 hash.</p>
-            <p><a class="button small" href="api-docs.php" target="_blank" rel="noopener">Open public API documentation</a></p>
-        </div>
+        <form method="post" class="grid-form">
+            <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+            <input type="hidden" name="action" value="create_app">
+            <label>Name <input name="name" required placeholder="Runes of Power"></label>
+            <label class="wide">Description <input name="description" placeholder="Optional integration notes"></label>
+            <div class="form-actions"><button class="button primary" type="submit">Create integration</button></div>
+        </form>
     </section>
 
     <section class="card">
         <div class="section-header">
             <div>
-                <h2>Generate API key</h2>
-                <p class="muted">Generate keys for source apps before wiring the API. Scopes are enforced by the API layer.</p>
+                <h2>Integrations</h2>
+                <p class="muted">Manage source apps. Integrations with history should be archived rather than deleted.</p>
             </div>
-        </div>
-        <?php if (!$activeApps): ?>
-            <p class="empty">Create an active source app before generating API keys.</p>
-        <?php else: ?>
-            <form method="post" class="grid-form">
-                <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                <input type="hidden" name="action" value="create_api_key">
-                <label>Source app
-                    <select name="app_id" required>
-                        <option value="">Select…</option>
-                        <?php foreach ($activeApps as $app): ?>
-                            <option value="<?= (int)$app['id'] ?>"><?= h($app['name']) ?> (<?= h($app['slug']) ?>)</option>
-                        <?php endforeach; ?>
-                    </select>
-                </label>
-                <label>Key name <input name="key_name" required placeholder="Production integration"></label>
-                <label>Expires on <input type="date" name="expires_at"><small>Optional. Leave blank for no expiry.</small></label>
-                <div class="wide">
-                    <label>Scopes</label>
-                    <div class="scope-grid">
-                        <?php foreach (AppService::AVAILABLE_SCOPES as $scope => $label): ?>
-                            <label class="scope-check"><input type="checkbox" name="scopes[]" value="<?= h($scope) ?>"> <span><code><?= h($scope) ?></code><small><?= h($label) ?></small></span></label>
-                        <?php endforeach; ?>
-                    </div>
-                </div>
-                <div class="form-actions"><button class="button primary" type="submit">Generate key</button></div>
-            </form>
-        <?php endif; ?>
-    </section>
-
-    <section class="card">
-        <div class="section-header">
-            <div>
-                <h2>Source apps</h2>
-                <p class="muted">Manage integration sources. Apps with history should be archived rather than deleted.</p>
-            </div>
-            <span class="pill"><?= count($apps) ?> app<?= count($apps) === 1 ? '' : 's' ?></span>
+            <span class="pill"><?= count($apps) ?> integration<?= count($apps) === 1 ? '' : 's' ?></span>
         </div>
         <div class="table-wrap">
             <table>
@@ -2450,7 +2462,7 @@ function render_source_apps(array $apps, array $apiKeys): void
                                         <label>Name <input name="name" value="<?= h($app['name']) ?>" required></label>
                                         <label>Slug <input name="slug" value="<?= h($app['slug']) ?>" required><small>Changing this may affect integrations that look up records by source app slug.</small></label>
                                         <label>Description <input name="description" value="<?= h($app['description'] ?? '') ?>"></label>
-                                        <button class="button small primary" type="submit">Save source app</button>
+                                        <button class="button small primary" type="submit">Save integration</button>
                                     </form>
                                 </details>
                                 <?php if (!$isActive): ?>
@@ -2462,49 +2474,107 @@ function render_source_apps(array $apps, array $apiKeys): void
                                     </form>
                                 <?php endif; ?>
                                 <?php if ($usageTotal === 0): ?>
-                                    <form method="post" class="row-action" onsubmit="return confirm('Delete this unused source app? This cannot be undone.');">
+                                    <form method="post" class="row-action" onsubmit="return confirm('Delete this unused integration? This cannot be undone.');">
                                         <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
                                         <input type="hidden" name="action" value="delete_app">
                                         <input type="hidden" name="app_id" value="<?= (int)$app['id'] ?>">
                                         <button class="button small danger" type="submit">Delete</button>
                                     </form>
                                 <?php elseif ($isActive): ?>
-                                    <form method="post" class="row-action" onsubmit="return confirm('Archive this source app? Existing history and keys will remain.');">
+                                    <form method="post" class="row-action" onsubmit="return confirm('Archive this integration? Existing history and keys will remain.');">
                                         <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
                                         <input type="hidden" name="action" value="archive_app">
                                         <input type="hidden" name="app_id" value="<?= (int)$app['id'] ?>">
                                         <button class="button small" type="submit">Archive</button>
                                     </form>
                                 <?php endif; ?>
+                                <a class="button small" href="<?= h(url_for('api_keys', ['app_id' => (int)$app['id']])) ?>">API keys</a>
                             <?php endif; ?>
                         </td>
                     </tr>
                 <?php endforeach; ?>
-                <?php if (!$apps): ?><tr><td colspan="6" class="empty">No source apps found.</td></tr><?php endif; ?>
+                <?php if (!$apps): ?><tr><td colspan="6" class="empty">No integrations found.</td></tr><?php endif; ?>
                 </tbody>
             </table>
         </div>
+    </section>
+    <?php
+}
+
+function render_api_keys(array $apps, array $apiKeys): void
+{
+    $selectedAppId = (int)($_GET['app_id'] ?? 0);
+    $activeApps = array_values(array_filter($apps, fn(array $app): bool => (int)$app['is_active'] === 1 && (string)$app['slug'] !== AppService::SYSTEM_MANUAL_SLUG));
+    if ($selectedAppId > 0) {
+        $apiKeys = array_values(array_filter($apiKeys, fn(array $key): bool => (int)$key['app_id'] === $selectedAppId));
+    }
+    ?>
+    <section class="card">
+        <div class="section-header">
+            <div>
+                <h2>Create API key</h2>
+                <p class="muted">Generate keys for integrations. Raw keys are shown once only and are stored as hashes.</p>
+            </div>
+            <a class="button" href="<?= h(url_for('integrations')) ?>">Manage integrations</a>
+        </div>
+        <?php if (!$activeApps): ?>
+            <p class="empty">Create an active integration before generating API keys.</p>
+        <?php else: ?>
+            <form method="post" class="grid-form">
+                <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                <input type="hidden" name="action" value="create_api_key">
+                <label>Integration
+                    <select name="app_id" required>
+                        <option value="">Select…</option>
+                        <?php foreach ($activeApps as $app): ?>
+                            <option value="<?= (int)$app['id'] ?>" <?= $selectedAppId === (int)$app['id'] ? 'selected' : '' ?>><?= h($app['name']) ?> (<?= h($app['slug']) ?>)</option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+                <label>Key name <input name="key_name" required placeholder="Production integration"></label>
+                <label>Expires on <input type="date" name="expires_at"><small>Optional. Leave blank for no expiry.</small></label>
+                <div class="wide">
+                    <label>Scopes</label>
+                    <div class="scope-grid">
+                        <?php foreach (AppService::AVAILABLE_SCOPES as $scope => $label): ?>
+                            <label class="scope-check"><input type="checkbox" name="scopes[]" value="<?= h($scope) ?>"> <span><code><?= h($scope) ?></code><small><?= h($label) ?></small></span></label>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+                <div class="form-actions"><button class="button primary" type="submit">Generate key</button></div>
+            </form>
+        <?php endif; ?>
     </section>
 
     <section class="card">
         <div class="section-header">
             <div>
                 <h2>API keys</h2>
-                <p class="muted">Only key names and metadata are stored. Raw key values cannot be recovered after generation.</p>
+                <p class="muted">Edit permissions without changing the key, or regenerate to issue a replacement raw key.</p>
             </div>
-            <span class="pill"><?= count($apiKeys) ?> key<?= count($apiKeys) === 1 ? '' : 's' ?></span>
+            <form method="get" class="inline-form">
+                <input type="hidden" name="page" value="api_keys">
+                <label>Integration
+                    <select name="app_id" onchange="this.form.submit()">
+                        <option value="">All integrations</option>
+                        <?php foreach ($activeApps as $app): ?>
+                            <option value="<?= (int)$app['id'] ?>" <?= $selectedAppId === (int)$app['id'] ? 'selected' : '' ?>><?= h($app['name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+            </form>
         </div>
         <div class="table-wrap">
             <table>
-                <thead><tr><th>Key</th><th>Source app</th><th>Scopes</th><th>Created</th><th>Last used</th><th>Expires</th><th>Status</th><th>Actions</th></tr></thead>
+                <thead><tr><th>Key</th><th>Integration</th><th>Scopes</th><th>Created</th><th>Last used</th><th>Expires</th><th>Status</th><th>Actions</th></tr></thead>
                 <tbody>
                 <?php foreach ($apiKeys as $key): ?>
-                    <?php $isActive = (int)$key['is_active'] === 1; ?>
+                    <?php $isActive = (int)$key['is_active'] === 1; $scopes = $key['scopes_array'] ?? []; ?>
                     <tr>
                         <td><strong><?= h($key['key_name']) ?></strong><small>ID <?= (int)$key['id'] ?></small></td>
                         <td><?= h($key['app_name']) ?><small><code><?= h($key['app_slug']) ?></code></small></td>
                         <td>
-                            <?php foreach (($key['scopes_array'] ?? []) as $scope): ?>
+                            <?php foreach ($scopes as $scope): ?>
                                 <code class="scope-code"><?= h($scope) ?></code>
                             <?php endforeach; ?>
                         </td>
@@ -2513,6 +2583,29 @@ function render_source_apps(array $apps, array $apiKeys): void
                         <td><?= h(local_datetime($key['expires_at'] ?? null)) ?></td>
                         <td><?= $isActive ? badge('active') : badge('revoked') ?></td>
                         <td class="actions-cell">
+                            <details class="inline-edit">
+                                <summary class="button small">Edit</summary>
+                                <form method="post" class="stacked-form compact api-key-edit-form">
+                                    <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                    <input type="hidden" name="action" value="update_api_key">
+                                    <input type="hidden" name="api_key_id" value="<?= (int)$key['id'] ?>">
+                                    <label>Key name <input name="key_name" value="<?= h($key['key_name']) ?>" required></label>
+                                    <label>Expires on <input type="date" name="expires_at" value="<?= h(!empty($key['expires_at']) ? substr((string)$key['expires_at'], 0, 10) : '') ?>"><small>Leave blank for no expiry.</small></label>
+                                    <label>Scopes</label>
+                                    <div class="scope-grid scope-grid-compact">
+                                        <?php foreach (AppService::AVAILABLE_SCOPES as $scope => $label): ?>
+                                            <label class="scope-check"><input type="checkbox" name="scopes[]" value="<?= h($scope) ?>" <?= in_array($scope, $scopes, true) ? 'checked' : '' ?>> <span><code><?= h($scope) ?></code><small><?= h($label) ?></small></span></label>
+                                        <?php endforeach; ?>
+                                    </div>
+                                    <button class="button small primary" type="submit">Save permissions</button>
+                                </form>
+                            </details>
+                            <form method="post" class="row-action" onsubmit="return confirm('Regenerate this API key? The current raw key will stop working immediately.');">
+                                <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                <input type="hidden" name="action" value="regenerate_api_key">
+                                <input type="hidden" name="api_key_id" value="<?= (int)$key['id'] ?>">
+                                <button class="button small" type="submit">Regenerate</button>
+                            </form>
                             <?php if ($isActive): ?>
                                 <form method="post" class="row-action" onsubmit="return confirm('Revoke this API key? Existing integrations using it will stop working.');">
                                     <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
@@ -2539,12 +2632,17 @@ function render_source_apps(array $apps, array $apiKeys): void
                         </td>
                     </tr>
                 <?php endforeach; ?>
-                <?php if (!$apiKeys): ?><tr><td colspan="8" class="empty">No API keys have been generated yet.</td></tr><?php endif; ?>
+                <?php if (!$apiKeys): ?><tr><td colspan="8" class="empty">No API keys found.</td></tr><?php endif; ?>
                 </tbody>
             </table>
         </div>
     </section>
     <?php
+}
+
+function render_source_apps(array $apps, array $apiKeys): void
+{
+    render_integrations($apps);
 }
 
 function render_settings(array $apps): void
@@ -2563,7 +2661,7 @@ function render_settings(array $apps): void
             <div><span>Role IDs</span><strong><?= h(Env::get('DISCORD_ADMIN_ROLE_IDS', '') ?: 'Linked users / owner IDs only') ?></strong></div>
         </div>
         <p class="muted"><a href="<?= h(url_for('users')) ?>">Open Users</a> to manage treasury users, RSNs, Discord links, and active status.</p>
-        <p class="muted"><a href="<?= h(url_for('source_apps')) ?>">Open Source Apps</a> to manage integrations and API keys.</p>
+        <p class="muted"><a href="<?= h(url_for('integrations')) ?>">Open Integrations</a> to manage source apps, or <a href="<?= h(url_for('api_keys')) ?>">open API Keys</a> to manage API access.</p>
     </section>
     <?php
 }

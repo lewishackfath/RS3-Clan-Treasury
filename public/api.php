@@ -126,6 +126,12 @@ try {
         exit;
     }
 
+    if (preg_match('#^/api/v1/(?:money-in-requests|payment-requests)/([0-9a-fA-F-]{36})/receive$#', $path, $m) && $method === 'POST') {
+        $context = ApiAuth::requireContext('payments:receive');
+        Response::json((new PaymentRequestService())->receiveFromApi($m[1], $context, $body));
+        exit;
+    }
+
     if (preg_match('#^/api/v1/(?:money-in-requests|payment-requests)/by-source/([^/]+)/([^/]+)$#', $path, $m) && $method === 'GET') {
         $context = ApiAuth::requireContext('payments:read');
         Response::json((new PaymentRequestService())->getBySource($context->appId, rawurldecode($m[1]), rawurldecode($m[2])));
