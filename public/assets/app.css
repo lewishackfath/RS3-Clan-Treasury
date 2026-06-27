@@ -208,6 +208,30 @@ label { color: var(--muted); font-size: .9rem; font-weight: 650; }
 .grid-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; align-items: end; }
 .grid-form .wide { grid-column: 1 / -1; }
 .form-actions { display: flex; justify-content: flex-end; align-items: end; grid-column: 1 / -1; gap: .5rem; }
+
+/* Keep profile/user detail fields visually aligned. */
+.profile-form {
+    align-items: start;
+}
+.profile-form label {
+    display: flex;
+    flex-direction: column;
+    gap: .25rem;
+}
+.profile-form input,
+.profile-form select,
+.profile-form textarea {
+    margin-top: 0;
+}
+.profile-form label small {
+    display: block;
+    margin-top: .15rem;
+    line-height: 1.25;
+}
+.profile-form .form-actions {
+    align-self: end;
+}
+
 .inline-form { display: flex; align-items: end; gap: .5rem; }
 .filter-form { display: flex; align-items: end; flex-wrap: wrap; gap: .6rem; }
 .filter-form label { min-width: 160px; }

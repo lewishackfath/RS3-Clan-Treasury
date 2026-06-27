@@ -2336,7 +2336,7 @@ function render_user_profile_form(array $admin, bool $selfProfile): void
                 </div>
                 <?php if (!$selfProfile): ?><a class="button" href="<?= h(url_for('users')) ?>">Back to users</a><?php endif; ?>
             </div>
-            <form method="post" class="grid-form">
+            <form method="post" class="grid-form profile-form">
                 <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
                 <input type="hidden" name="action" value="<?= $selfProfile ? 'update_profile' : 'update_admin' ?>">
                 <?php if (!$selfProfile): ?><input type="hidden" name="admin_id" value="<?= $adminId ?>"><?php endif; ?>

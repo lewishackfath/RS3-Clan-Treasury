@@ -641,3 +641,8 @@ UI changes:
 - Integrations now use dedicated **New integration** and **Edit integration** screens.
 - API keys now use dedicated **New API key** and **Edit API key** screens.
 - Inline editing has been removed from Users, Integrations, and API Keys.
+
+
+## Profile form alignment hotfix
+
+This build adds a small UI alignment fix for profile and treasury-user edit forms so field labels, inputs, helper text, and save actions line up cleanly.
