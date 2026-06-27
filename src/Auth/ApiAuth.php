@@ -9,6 +9,13 @@ use Treasury\Database;
 
 final class ApiAuth
 {
+    private static ?ApiContext $lastContext = null;
+
+    public static function lastContext(): ?ApiContext
+    {
+        return self::$lastContext;
+    }
+
     private static function bearerHeader(): string
     {
         $candidates = [
@@ -76,6 +83,8 @@ final class ApiAuth
             (int)$row['api_key_id'],
             $scopes
         );
+
+        self::$lastContext = $context;
 
         if ($requiredScope !== null && !$context->can($requiredScope)) {
             throw new \RuntimeException('API key does not have required scope: ' . $requiredScope, 403);

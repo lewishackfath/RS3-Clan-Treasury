@@ -701,3 +701,24 @@ tr:hover td { background: rgba(255, 248, 226, .22); }
     .api-docs-toc { position: static; }
     .api-docs-hero { align-items: flex-start; flex-direction: column; }
 }
+
+.api-log-body {
+    margin: 0;
+    padding: .9rem;
+    max-height: 520px;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: .85rem;
+    background: #24190e;
+    color: #f2e6c8;
+    font-size: .86rem;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+.api-log-body code {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+}

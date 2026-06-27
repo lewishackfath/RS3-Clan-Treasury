@@ -9,6 +9,7 @@ use Treasury\Services\AdminService;
 use Treasury\Services\AccountService;
 use Treasury\Services\AdminBalanceOffsetService;
 use Treasury\Services\AppService;
+use Treasury\Services\ApiRequestLogService;
 use Treasury\Services\BalanceService;
 use Treasury\Services\ManualLedgerService;
 use Treasury\Services\PaymentRequestService;
@@ -145,6 +146,8 @@ function nav_items(): array
         'integration_new' => 'New integration',
         'integration_edit' => 'Edit integration',
         'api_keys' => 'API Keys',
+        'api_logs' => 'API Log',
+        'api_log_detail' => 'API Log Detail',
         'profile' => 'Profile',
         'settings' => 'Settings',
     ];
@@ -170,6 +173,7 @@ function nav_categories(): array
         'Integrations' => [
             'integrations' => 'Integrations',
             'api_keys' => 'API Keys',
+            'api_logs' => 'API Log',
         ],
         'System' => [
             'profile' => 'Profile',
@@ -204,6 +208,8 @@ function page_title(string $page): string
         'api_keys' => 'API Keys',
         'api_key_new' => 'New API key',
         'api_key_edit' => 'Edit API key',
+        'api_logs' => 'API Log',
+        'api_log_detail' => 'API request detail',
         'source_apps' => 'Integrations',
     ][$page] ?? (nav_items()[$page] ?? ucwords(str_replace('_', ' ', $page)));
 }
@@ -223,6 +229,8 @@ function page_description(string $page): string
         'api_keys' => 'Manage API keys, scopes, expiry dates, and key regeneration for integrations.',
         'api_key_new' => 'Generate a new API key for an integration.',
         'api_key_edit' => 'Edit API key permissions, expiry, and regeneration.',
+        'api_logs' => 'Review API calls from integrations, including status codes, request bodies, and responses.',
+        'api_log_detail' => 'Inspect a single API request and response.',
         'source_apps' => 'Manage source applications/integrations that can connect to Treasury.',
         'reports' => 'Review revenue, expenses, official treasury movement, money owed by admins, and account activity.',
         'chart_accounts' => 'Manage revenue and expense ledger accounts used to categorise GP transactions.',
@@ -1081,6 +1089,10 @@ $expenseAccounts = $loggedIn ? $accountService->postingAccounts('expense') : [];
         <?php render_api_key_form(null, $allSourceApps); ?>
     <?php elseif ($page === 'api_key_edit'): ?>
         <?php render_api_key_form((int)($_GET['id'] ?? 0), $allSourceApps); ?>
+    <?php elseif ($page === 'api_logs'): ?>
+        <?php render_api_logs(new ApiRequestLogService(), $allSourceApps); ?>
+    <?php elseif ($page === 'api_log_detail'): ?>
+        <?php render_api_log_detail(new ApiRequestLogService()); ?>
     <?php elseif ($page === 'settings'): ?>
         <?php render_settings($apps); ?>
     <?php else: ?>
@@ -2987,6 +2999,177 @@ function render_api_key_form(?int $keyId, array $apps): void
     <?php
 }
 
+
+function render_api_logs(ApiRequestLogService $service, array $apps): void
+{
+    $filters = [
+        'app_id' => (int)($_GET['app_id'] ?? 0),
+        'status_family' => (string)($_GET['status_family'] ?? ''),
+        'method' => (string)($_GET['method'] ?? ''),
+        'q' => (string)($_GET['q'] ?? ''),
+    ];
+    $logs = $service->list($filters);
+    $summary = $service->summary();
+    $activeApps = array_values(array_filter($apps, fn(array $app): bool => (int)$app['is_active'] === 1 && (string)$app['slug'] !== AppService::SYSTEM_MANUAL_SLUG));
+    ?>
+    <section class="metric-grid">
+        <div class="metric"><span>API calls</span><strong><?= number_format((int)$summary['total']) ?></strong><small>last 7 days</small></div>
+        <div class="metric"><span>Successful</span><strong><?= number_format((int)$summary['success_count']) ?></strong><small>2xx responses</small></div>
+        <div class="metric"><span>Client errors</span><strong><?= number_format((int)$summary['client_error_count']) ?></strong><small>4xx responses</small></div>
+        <div class="metric"><span>Server errors</span><strong><?= number_format((int)$summary['server_error_count']) ?></strong><small>5xx responses</small></div>
+    </section>
+
+    <section class="card">
+        <div class="section-header">
+            <div>
+                <h2>API request log</h2>
+                <p class="muted">Review requests made by integrations, including status codes, timing, request bodies, and response payloads. Raw API keys are never logged.</p>
+            </div>
+            <div class="actions-cell">
+                <a class="button" href="api-docs.php" target="_blank" rel="noopener">API docs</a>
+                <a class="button" href="<?= h(url_for('api_keys')) ?>">API keys</a>
+            </div>
+        </div>
+
+        <form method="get" class="filter-form filter-panel">
+            <input type="hidden" name="page" value="api_logs">
+            <label>Integration
+                <select name="app_id">
+                    <option value="">All integrations</option>
+                    <?php foreach ($activeApps as $app): ?>
+                        <option value="<?= (int)$app['id'] ?>" <?= (int)$filters['app_id'] === (int)$app['id'] ? 'selected' : '' ?>><?= h($app['name']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </label>
+            <label>Status
+                <select name="status_family">
+                    <option value="">All statuses</option>
+                    <option value="2xx" <?= $filters['status_family'] === '2xx' ? 'selected' : '' ?>>2xx successful</option>
+                    <option value="4xx" <?= $filters['status_family'] === '4xx' ? 'selected' : '' ?>>4xx client errors</option>
+                    <option value="5xx" <?= $filters['status_family'] === '5xx' ? 'selected' : '' ?>>5xx server errors</option>
+                </select>
+            </label>
+            <label>Method
+                <select name="method">
+                    <option value="">All methods</option>
+                    <?php foreach (['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as $method): ?>
+                        <option value="<?= h($method) ?>" <?= strtoupper((string)$filters['method']) === $method ? 'selected' : '' ?>><?= h($method) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </label>
+            <label>Search <input name="q" value="<?= h($filters['q']) ?>" placeholder="Path, error, UUID, key name"></label>
+            <button class="button" type="submit">Filter</button>
+            <a class="button" href="<?= h(url_for('api_logs')) ?>">Clear</a>
+        </form>
+
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Time</th><th>Status</th><th>Method</th><th>Path</th><th>Integration</th><th>API key</th><th>Duration</th><th>Error</th><th>Actions</th></tr></thead>
+                <tbody>
+                <?php foreach ($logs as $log): ?>
+                    <?php $status = (int)($log['status_code'] ?? 0); ?>
+                    <tr>
+                        <td><?= h(local_datetime($log['created_at'])) ?><small><?= h($log['request_uuid']) ?></small></td>
+                        <td><?= api_status_badge($status) ?></td>
+                        <td><code><?= h($log['method']) ?></code></td>
+                        <td><code><?= h($log['path']) ?></code><?php if (!empty($log['query_string'])): ?><small>?<?= h($log['query_string']) ?></small><?php endif; ?></td>
+                        <td><?= h($log['app_name'] ?: 'Unauthenticated') ?><?php if (!empty($log['app_slug'])): ?><small><code><?= h($log['app_slug']) ?></code></small><?php endif; ?></td>
+                        <td><?= h($log['key_name'] ?: '—') ?></td>
+                        <td><?= (int)($log['duration_ms'] ?? 0) ?>ms</td>
+                        <td><?= h($log['error_message'] ?: '—') ?></td>
+                        <td><a class="button small" href="<?= h(url_for('api_log_detail', ['id' => (int)$log['id']])) ?>">View</a></td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if (!$logs): ?><tr><td colspan="9" class="empty">No API calls found.</td></tr><?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+    </section>
+    <?php
+}
+
+function render_api_log_detail(ApiRequestLogService $service): void
+{
+    try {
+        $log = $service->get((int)($_GET['id'] ?? 0));
+    } catch (Throwable $e) {
+        render_not_found($e->getMessage(), 'api_logs');
+        return;
+    }
+    $status = (int)($log['status_code'] ?? 0);
+    ?>
+    <section class="card">
+        <div class="section-header">
+            <div>
+                <h2>API request</h2>
+                <p class="muted"><code><?= h($log['request_uuid']) ?></code></p>
+            </div>
+            <a class="button" href="<?= h(url_for('api_logs')) ?>">Back to API Log</a>
+        </div>
+        <div class="config-grid">
+            <div><span>Status</span><strong><?= api_status_badge($status) ?></strong></div>
+            <div><span>Method</span><strong><code><?= h($log['method']) ?></code></strong></div>
+            <div><span>Duration</span><strong><?= (int)($log['duration_ms'] ?? 0) ?>ms</strong></div>
+            <div><span>Time</span><strong><?= h(local_datetime($log['created_at'])) ?></strong></div>
+            <div><span>Integration</span><strong><?= h($log['app_name'] ?: 'Unauthenticated') ?></strong><?php if (!empty($log['app_slug'])): ?><small><code><?= h($log['app_slug']) ?></code></small><?php endif; ?></div>
+            <div><span>API key</span><strong><?= h($log['key_name'] ?: '—') ?></strong></div>
+            <div><span>Idempotency key</span><strong><?= h($log['idempotency_key'] ?: '—') ?></strong></div>
+            <div><span>IP address</span><strong><?= h($log['ip_address'] ?: '—') ?></strong></div>
+        </div>
+        <div class="notice-inline"><strong>Path:</strong> <code><?= h($log['path']) ?></code><?php if (!empty($log['query_string'])): ?><br><strong>Query:</strong> <code><?= h($log['query_string']) ?></code><?php endif; ?></div>
+        <?php if (!empty($log['error_message'])): ?><div class="notice-inline"><strong>Error:</strong> <?= h($log['error_message']) ?></div><?php endif; ?>
+    </section>
+
+    <div class="grid two">
+        <section class="card">
+            <h2>Request body</h2>
+            <?= api_log_code_block((string)($log['request_body'] ?? '')) ?>
+        </section>
+        <section class="card">
+            <h2>Response body</h2>
+            <?= api_log_code_block((string)($log['response_body'] ?? '')) ?>
+        </section>
+    </div>
+
+    <section class="card">
+        <h2>Request metadata</h2>
+        <div class="config-grid">
+            <div><span>User agent</span><strong><?= h($log['user_agent'] ?: '—') ?></strong></div>
+            <div><span>Log ID</span><strong><?= (int)$log['id'] ?></strong></div>
+            <div><span>Integration ID</span><strong><?= h($log['app_id'] ?: '—') ?></strong></div>
+            <div><span>API key ID</span><strong><?= h($log['api_key_id'] ?: '—') ?></strong></div>
+        </div>
+    </section>
+    <?php
+}
+
+function api_log_code_block(string $body): string
+{
+    if (trim($body) === '') {
+        return '<p class="empty">No body captured.</p>';
+    }
+
+    $decoded = json_decode($body, true);
+    if (is_array($decoded)) {
+        $body = json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: $body;
+    }
+
+    return '<pre class="api-log-body"><code>' . h($body) . '</code></pre>';
+}
+
+function api_status_badge(int $status): string
+{
+    if ($status >= 200 && $status <= 299) {
+        return '<span class="badge badge-reconciled-to-treasury">' . $status . '</span>';
+    }
+    if ($status >= 400 && $status <= 499) {
+        return '<span class="badge badge-received-by-admin">' . $status . '</span>';
+    }
+    if ($status >= 500) {
+        return '<span class="badge badge-cancelled">' . $status . '</span>';
+    }
+    return '<span class="badge">' . h((string)$status) . '</span>';
+}
 
 function render_source_apps(array $apps, array $apiKeys): void
 {

@@ -10,7 +10,7 @@ use Treasury\Support\Env;
 
 final class DatabaseBootstrap
 {
-    private const SCHEMA_VERSION = '2026.06.27.partial-auto-admin-offsets';
+    private const SCHEMA_VERSION = '2026.06.27.api-request-logs';
 
     private const SYSTEM_APPS = [
         [
@@ -354,6 +354,31 @@ final class DatabaseBootstrap
                 INDEX idx_treasury_audit_action (action),
                 INDEX idx_treasury_audit_created (created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+
+            'CREATE TABLE IF NOT EXISTS treasury_api_request_logs (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                request_uuid CHAR(36) NOT NULL UNIQUE,
+                app_id BIGINT UNSIGNED NULL,
+                api_key_id BIGINT UNSIGNED NULL,
+                method VARCHAR(10) NOT NULL,
+                path VARCHAR(255) NOT NULL,
+                query_string VARCHAR(500) NULL,
+                status_code SMALLINT UNSIGNED NULL,
+                duration_ms INT UNSIGNED NULL,
+                idempotency_key VARCHAR(180) NULL,
+                ip_address VARCHAR(45) NULL,
+                user_agent VARCHAR(255) NULL,
+                request_body MEDIUMTEXT NULL,
+                response_body MEDIUMTEXT NULL,
+                error_message VARCHAR(255) NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_treasury_api_logs_created (created_at),
+                INDEX idx_treasury_api_logs_app (app_id),
+                INDEX idx_treasury_api_logs_key (api_key_id),
+                INDEX idx_treasury_api_logs_status (status_code),
+                INDEX idx_treasury_api_logs_path (path)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
         ];
     }
 
@@ -394,6 +419,22 @@ final class DatabaseBootstrap
                 'metadata' => 'JSON NULL',
                 'related_transaction_id' => 'BIGINT UNSIGNED NULL',
             ],
+            'treasury_api_request_logs' => [
+                'request_uuid' => 'CHAR(36) NULL',
+                'app_id' => 'BIGINT UNSIGNED NULL',
+                'api_key_id' => 'BIGINT UNSIGNED NULL',
+                'method' => 'VARCHAR(10) NOT NULL DEFAULT "GET"',
+                'path' => 'VARCHAR(255) NOT NULL DEFAULT "/"',
+                'query_string' => 'VARCHAR(500) NULL',
+                'status_code' => 'SMALLINT UNSIGNED NULL',
+                'duration_ms' => 'INT UNSIGNED NULL',
+                'idempotency_key' => 'VARCHAR(180) NULL',
+                'ip_address' => 'VARCHAR(45) NULL',
+                'user_agent' => 'VARCHAR(255) NULL',
+                'request_body' => 'MEDIUMTEXT NULL',
+                'response_body' => 'MEDIUMTEXT NULL',
+                'error_message' => 'VARCHAR(255) NULL',
+            ],
         ];
 
         foreach ($columns as $table => $definitions) {
@@ -430,6 +471,11 @@ final class DatabaseBootstrap
             ['treasury_request_settlements', 'idx_treasury_request_settlements_transaction', 'transaction_id'],
             ['treasury_request_settlements', 'idx_treasury_request_settlements_request', 'request_type, request_id'],
             ['treasury_audit_log', 'idx_treasury_audit_created', 'created_at'],
+            ['treasury_api_request_logs', 'idx_treasury_api_logs_created', 'created_at'],
+            ['treasury_api_request_logs', 'idx_treasury_api_logs_app', 'app_id'],
+            ['treasury_api_request_logs', 'idx_treasury_api_logs_key', 'api_key_id'],
+            ['treasury_api_request_logs', 'idx_treasury_api_logs_status', 'status_code'],
+            ['treasury_api_request_logs', 'idx_treasury_api_logs_path', 'path'],
         ];
 
         foreach ($indexes as [$table, $index, $columnList]) {

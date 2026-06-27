@@ -713,3 +713,27 @@ Example:
 The offset posts a ledger adjustment between the per-admin asset account and the per-admin payable account. If the offset relates to Money In or Money Out requests, partial request allocations are tracked in `treasury_request_settlements`. Fully settled requests are automatically moved to `reconciled_to_treasury` or `reimbursed`; partially settled requests remain open for the remaining amount.
 
 DB Bootstrap creates the new settlement allocation table automatically.
+
+## API Request Log
+
+This build adds an **API Log** page under the Integrations menu.
+
+The API Log records API calls made to `public/api.php`, including:
+
+- Integration/source app identity when authentication succeeds.
+- API key record name and ID when authentication succeeds.
+- HTTP method, path, query string, status code, and response time.
+- Idempotency key, IP address, and user agent.
+- Request body and response body, truncated by `API_REQUEST_LOG_BODY_MAX_BYTES`.
+- Error message for JSON error responses.
+
+Raw API keys and `Authorization` headers are not stored.
+
+Optional `.env` controls:
+
+```env
+API_REQUEST_LOG_ENABLED=true
+API_REQUEST_LOG_BODY_MAX_BYTES=20000
+```
+
+DB Bootstrap creates the `treasury_api_request_logs` table automatically.

@@ -10,6 +10,7 @@ use Treasury\Services\BalanceService;
 use Treasury\Services\IdempotencyService;
 use Treasury\Services\PaymentRequestService;
 use Treasury\Services\PayoutRequestService;
+use Treasury\Services\ApiRequestLogService;
 use Treasury\Support\Env;
 
 function request_json(): array
@@ -77,6 +78,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
+$__apiLog = [
+    'started_at' => microtime(true),
+    'method' => $_SERVER['REQUEST_METHOD'] ?? '',
+    'path' => parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/',
+    'query_string' => $_SERVER['QUERY_STRING'] ?? '',
+    'raw_body' => '',
+];
+
+ob_start();
+register_shutdown_function(function () use (&$__apiLog): void {
+    $responseBody = ob_get_contents();
+    $statusCode = http_response_code();
+    if (!$statusCode) {
+        $statusCode = 200;
+    }
+
+    $errorMessage = null;
+    if (is_string($responseBody) && $responseBody !== '') {
+        $decoded = json_decode($responseBody, true);
+        if (is_array($decoded) && isset($decoded['error'])) {
+            $errorMessage = (string)$decoded['error'];
+        }
+    }
+
+    try {
+        $context = ApiAuth::lastContext();
+        (new ApiRequestLogService())->record([
+            'app_id' => $context?->appId,
+            'api_key_id' => $context?->apiKeyId,
+            'method' => $__apiLog['method'] ?? '',
+            'path' => $__apiLog['path'] ?? '',
+            'query_string' => $__apiLog['query_string'] ?? '',
+            'status_code' => $statusCode,
+            'duration_ms' => (int)round((microtime(true) - (float)($__apiLog['started_at'] ?? microtime(true))) * 1000),
+            'idempotency_key' => $_SERVER['HTTP_IDEMPOTENCY_KEY'] ?? '',
+            'ip_address' => $_SERVER['REMOTE_ADDR'] ?? '',
+            'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? '',
+            'request_body' => $__apiLog['raw_body'] ?? '',
+            'response_body' => is_string($responseBody) ? $responseBody : '',
+            'error_message' => $errorMessage,
+        ]);
+    } catch (Throwable) {
+        // API logging must never break the API response.
+    }
+});
+
 try {
     $method = $_SERVER['REQUEST_METHOD'];
     $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?: '/';
@@ -89,7 +136,9 @@ try {
     }
 
     $path = '/' . trim($path, '/');
+    $__apiLog['path'] = $path;
     $rawBody = file_get_contents('php://input') ?: '';
+    $__apiLog['raw_body'] = $rawBody;
     $body = $rawBody === '' ? [] : json_decode($rawBody, true);
     if ($rawBody !== '' && !is_array($body)) {
         throw new InvalidArgumentException('Request body must be valid JSON');
