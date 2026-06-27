@@ -660,3 +660,21 @@ This means:
 - Existing older entries against the shared `2000` account are still included in the total as legacy payable balance.
 
 No manual migration is required when DB Bootstrap is enabled.
+
+## Repair legacy shared admin payable entries
+
+If an admin-paid payout or reimbursement was recorded before per-admin payable accounts were added, its ledger entry may still sit on the shared parent account `2000 Admin Funds Owed by Treasury`.
+
+Preview the repair:
+
+```bash
+php bin/repair-admin-payables.php --dry-run
+```
+
+Apply the repair:
+
+```bash
+php bin/repair-admin-payables.php
+```
+
+The repair does not change any amounts, transaction dates, statuses, or payout records. It only reclassifies resolvable ledger lines from the shared parent payable account to the correct per-admin child account, such as `2000:12 Funds Owed to Admin - Example`.
