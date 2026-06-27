@@ -20,6 +20,7 @@ $apiBase = $baseUrl . '/api/v1';
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>RS3 GP Treasury API Documentation</title>
+    <link rel="icon" href="favicon.ico">
     <link rel="stylesheet" href="assets/app.css">
 </head>
 <body class="api-docs-page">

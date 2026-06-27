@@ -61,6 +61,31 @@ function local_datetime(?string $value): string
     }
 }
 
+function app_tagline(): string
+{
+    return Env::get('APP_TAGLINE', 'RS3 GP Ledger');
+}
+
+function app_logo_url(): string
+{
+    return trim(Env::get('APP_LOGO_URL', ''));
+}
+
+function app_favicon_url(): string
+{
+    return trim(Env::get('APP_FAVICON_URL', 'favicon.ico')) ?: 'favicon.ico';
+}
+
+function brand_mark_html(): string
+{
+    $logoUrl = app_logo_url();
+    if ($logoUrl !== '') {
+        return '<span class="brand-mark brand-logo"><img src="' . h($logoUrl) . '" alt=""></span>';
+    }
+
+    return '<span class="brand-mark">◇</span>';
+}
+
 
 function report_date_bounds(): array
 {
@@ -926,16 +951,17 @@ $expenseAccounts = $loggedIn ? $accountService->postingAccounts('expense') : [];
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><?= h($appName) ?></title>
+    <link rel="icon" href="<?= h(app_favicon_url()) ?>">
     <link rel="stylesheet" href="assets/app.css">
 </head>
 <body>
 <?php if ($loggedIn && !$needsRsnSetup): ?>
     <aside class="sidebar">
         <div class="brand">
-            <span class="brand-mark">◇</span>
+            <?= brand_mark_html() ?>
             <div>
                 <strong><?= h($appName) ?></strong>
-                <small>RS3 GP Ledger</small>
+                <small><?= h(app_tagline()) ?></small>
             </div>
         </div>
         <nav>
@@ -1109,7 +1135,7 @@ function render_setup_rsn(string $appName): void
     $discordId = AdminSession::discordUserId() ?: '';
     ?>
     <section class="login-card setup-card">
-        <div class="brand large"><span class="brand-mark">◇</span><div><strong><?= h($appName) ?></strong><small>RS3 GP Accounting</small></div></div>
+        <div class="brand large"><?= brand_mark_html() ?><div><strong><?= h($appName) ?></strong><small><?= h(app_tagline()) ?></small></div></div>
         <h2>Set your RuneScape name</h2>
         <p class="muted">Your Discord sign-in is authorised, but it is not linked to a treasury user yet. Set your current RSN before using the treasury.</p>
         <div class="notice-inline">
@@ -1138,7 +1164,7 @@ function render_login(string $appName): void
     $passwordLoginEnabled = AdminSession::passwordLoginEnabled();
     ?>
     <section class="login-card">
-        <div class="brand large"><span class="brand-mark">◇</span><div><strong><?= h($appName) ?></strong><small>RS3 GP Accounting</small></div></div>
+        <div class="brand large"><?= brand_mark_html() ?><div><strong><?= h($appName) ?></strong><small><?= h(app_tagline()) ?></small></div></div>
         <?php if ($discordEnabled): ?>
             <p class="muted">Sign in with Discord to manage the treasury. Your Discord user must be linked to a treasury admin, listed as an owner, or hold an allowed Discord role.</p>
             <a class="button primary full-button" href="<?= h(url_for('discord_login')) ?>">Sign in with Discord</a>

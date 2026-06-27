@@ -737,3 +737,21 @@ API_REQUEST_LOG_BODY_MAX_BYTES=20000
 ```
 
 DB Bootstrap creates the `treasury_api_request_logs` table automatically.
+
+
+## Branding and logo
+
+The app branding can be customised from `.env` without editing PHP templates:
+
+```env
+APP_NAME="RS3 GP Treasury"
+APP_TAGLINE="RS3 GP Ledger"
+APP_LOGO_URL=assets/logo.png
+APP_FAVICON_URL=favicon.ico
+```
+
+`APP_LOGO_URL` may be a path inside `public/`, such as `assets/logo.png`, or a full HTTPS image URL. If it is blank, the app falls back to the built-in gold diamond mark.
+
+The supplied `favicon.ico` is included at `public/favicon.ico` and is used by default.
+
+The UI palette has also been softened to use darker parchment surfaces and lower-contrast highlights to reduce eye strain.
