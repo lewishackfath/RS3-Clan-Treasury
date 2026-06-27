@@ -46,6 +46,7 @@ $apiBase = $baseUrl . '/api/v1';
             <a href="#idempotency">Idempotency</a>
             <a href="#money-in">Money In</a>
             <a href="#money-out">Money Out</a>
+            <a href="#admin-rsns">Admin RSNs</a>
             <a href="#balances">Balances</a>
             <a href="#statuses">Statuses</a>
             <a href="#errors">Errors</a>
@@ -87,6 +88,7 @@ Content-Type: application/json</code></pre>
                         <tr><td><code>payouts:pay</code></td><td>Mark Money Out requests as paid by an admin from their own GP.</td></tr>
                         <tr><td><code>payouts:read</code></td><td>Read Money Out request status.</td></tr>
                         <tr><td><code>balances:read</code></td><td>Read current treasury balances.</td></tr>
+                        <tr><td><code>admins:read</code></td><td>Read valid treasury admin RSNs for received-by-admin and paid-by-admin integrations.</td></tr>
                     </tbody>
                 </table>
             </section>
@@ -238,6 +240,47 @@ GET <?= h($apiBase) ?>/money-out-requests/by-source/{source_type}/{source_id}</c
                 </table>
             </section>
 
+            <section id="admin-rsns" class="card api-doc-section">
+                <h2>Admin RSNs</h2>
+                <p>Use this endpoint when an integration needs to populate or validate the admin RSNs accepted by <code>received_by_admin_rsn</code> and <code>paid_by_admin_rsn</code>.</p>
+
+                <h3>List valid admin RSNs</h3>
+                <pre><code>GET <?= h($apiBase) ?>/admin-rsns
+GET <?= h($apiBase) ?>/admins/rsns</code></pre>
+                <p>Required scope: one of <code>admins:read</code>, <code>payments:receive</code>, or <code>payouts:pay</code></p>
+
+                <h3>Response example</h3>
+                <pre><code>{
+  "admins": [
+    {
+      "admin_id": 1,
+      "display_name": "Display Name",
+      "primary_rsn": "Main RSN",
+      "rsns": [
+        { "rsn_id": 10, "rsn": "Main RSN", "is_primary": true },
+        { "rsn_id": 11, "rsn": "Alt RSN", "is_primary": false }
+      ]
+    }
+  ],
+  "rsns": [
+    { "rsn": "Main RSN", "admin_id": 1, "display_name": "Display Name", "is_primary": true },
+    { "rsn": "Alt RSN", "admin_id": 1, "display_name": "Display Name", "is_primary": false }
+  ],
+  "accepted_fields": ["received_by_admin_rsn", "paid_by_admin_rsn"]
+}</code></pre>
+
+                <h3>Important fields</h3>
+                <table>
+                    <thead><tr><th>Field</th><th>Notes</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>admins</code></td><td>Grouped active treasury users/admins, including their primary RSN and all active RSNs.</td></tr>
+                        <tr><td><code>admins[].rsns</code></td><td>All active RSNs that map to that treasury user. Any listed RSN can be used by integrations.</td></tr>
+                        <tr><td><code>rsns</code></td><td>Flat list for dropdowns, autocomplete, or simple validation.</td></tr>
+                        <tr><td><code>accepted_fields</code></td><td>Payload fields that accept these RSN values.</td></tr>
+                    </tbody>
+                </table>
+            </section>
+
             <section id="balances" class="card api-doc-section">
                 <h2>Balances</h2>
                 <pre><code>GET <?= h($apiBase) ?>/balances</code></pre>
@@ -301,6 +344,7 @@ GET <?= h($apiBase) ?>/money-out-requests/by-source/{source_type}/{source_id}</c
                     <li>Generate an API key with the minimum scopes needed.</li>
                     <li>Call <code>GET /api/v1/me</code> from the source app to confirm authentication.</li>
                     <li>Create Money In/Out requests using stable <code>source_type</code> and <code>source_id</code> values.</li>
+                    <li>Use <code>GET /api/v1/admin-rsns</code> to validate or populate admin RSNs before sending admin receipt/payment fields.</li>
                     <li>If the source app already knows an admin physically received the GP, include <code>received_by_admin_rsn</code> and grant <code>payments:receive</code>.</li>
                     <li>If the source app already knows an admin paid outgoing GP from their own funds, include <code>paid_by_admin_rsn</code> and grant <code>payouts:pay</code>.</li>
                     <li>Poll by UUID or by source reference to display Treasury status inside the source app.</li>
@@ -310,30 +354,6 @@ GET <?= h($apiBase) ?>/money-out-requests/by-source/{source_type}/{source_id}</c
         </div>
     </section>
 
-        <section class="card">
-            <h2>Valid admin RSNs</h2>
-            <p>Use this endpoint when an integration needs to populate or validate <code>received_by_admin_rsn</code> or <code>paid_by_admin_rsn</code>.</p>
-            <pre><code>GET /api/v1/admin-rsns</code></pre>
-            <p>Requires one of these scopes: <code>admins:read</code>, <code>payments:receive</code>, or <code>payouts:pay</code>.</p>
-            <pre><code>{
-  "admins": [
-    {
-      "admin_id": 1,
-      "display_name": "Display Name",
-      "primary_rsn": "Main RSN",
-      "rsns": [
-        { "rsn_id": 10, "rsn": "Main RSN", "is_primary": true },
-        { "rsn_id": 11, "rsn": "Alt RSN", "is_primary": false }
-      ]
-    }
-  ],
-  "rsns": [
-    { "rsn": "Main RSN", "admin_id": 1, "display_name": "Display Name", "is_primary": true },
-    { "rsn": "Alt RSN", "admin_id": 1, "display_name": "Display Name", "is_primary": false }
-  ],
-  "accepted_fields": ["received_by_admin_rsn", "paid_by_admin_rsn"]
-}</code></pre>
-        </section>
 
     </main>
 </body>
