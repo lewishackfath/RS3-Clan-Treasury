@@ -234,7 +234,7 @@ final class AdminService
 
     private function syncAdminHeldAccountName(int $adminId, array $admin): void
     {
-        $name = 'Admin Held Funds - ' . ((string)($admin['display_name'] ?? '') ?: (string)($admin['rsn'] ?? ''));
+        $name = 'Funds Owed by Admin - ' . ((string)($admin['display_name'] ?? '') ?: (string)($admin['rsn'] ?? ''));
         $stmt = Database::pdo()->prepare('UPDATE treasury_accounts SET name = :name WHERE admin_id = :admin_id AND account_type = "asset" AND code LIKE "1100:%"');
         $stmt->execute(['name' => $name, 'admin_id' => $adminId]);
     }

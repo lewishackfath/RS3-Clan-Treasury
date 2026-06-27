@@ -534,3 +534,8 @@ The API auth layer also checks `HTTP_AUTHORIZATION`, `REDIRECT_HTTP_AUTHORIZATIO
 ## Source app slugs
 
 When source apps are created from the web UI, the slug is generated automatically from the app name. For example, `Runes of Power` becomes `runes_of_power`. If that slug already exists, the app will use the next available suffix, such as `runes_of_power_2`. Existing source apps can still have their slug edited from the Source Apps table, but avoid changing a slug once external integrations depend on it.
+
+
+## Admin-held GP wording
+
+Money received by an admin is treated as **money owed by that admin to the official treasury**. Reconciliation/handover should only be recorded when that GP has actually been transferred into the official clan treasury. Treasury users can record GP as being held by another admin, even if that admin does not have app access.

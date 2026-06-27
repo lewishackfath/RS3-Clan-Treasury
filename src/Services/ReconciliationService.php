@@ -58,7 +58,7 @@ final class ReconciliationService
                 'source_type' => 'reconciliation',
                 'source_id' => $reconUuid,
                 'transaction_type' => 'reconciliation',
-                'description' => $data['description'] ?? 'Admin-held GP reconciled into official treasury',
+                'description' => $data['description'] ?? 'Admin-held GP paid into official treasury',
                 'notes' => $data['notes'] ?? null,
                 'occurred_at' => $data['completed_at'] ?? 'now',
                 'posted_by_admin_id' => $completedByAdminId,
@@ -69,14 +69,14 @@ final class ReconciliationService
                     'direction' => 'debit',
                     'amount' => $amount,
                     'admin_id' => $fromAdminId,
-                    'memo' => 'Moved into official treasury',
+                    'memo' => 'Received into official treasury',
                 ],
                 [
                     'account_id' => $heldAccountId,
                     'direction' => 'credit',
                     'amount' => $amount,
                     'admin_id' => $fromAdminId,
-                    'memo' => 'Cleared admin-held funds',
+                    'memo' => 'Cleared amount owed by admin',
                 ],
             ]);
 
@@ -140,12 +140,12 @@ final class ReconciliationService
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         if (count($rows) !== count($requestUuids)) {
-            throw new \RuntimeException('One or more payment requests cannot be reconciled for this admin', 409);
+            throw new \RuntimeException('One or more payment requests cannot be paid into treasury for this admin', 409);
         }
 
         $selectedTotal = array_sum(array_map(fn(array $row): int => (int)$row['amount'], $rows));
         if ($selectedTotal !== $amount) {
-            throw new \RuntimeException('Selected payment request total does not match reconciliation amount', 409);
+            throw new \RuntimeException('Selected payment request total does not match handover amount', 409);
         }
 
         $ids = array_map(fn(array $row): int => (int)$row['id'], $rows);

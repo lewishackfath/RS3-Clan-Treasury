@@ -159,7 +159,7 @@ function page_title(string $page): string
         'setup_rsn' => 'Set your RSN',
         'payment_detail' => 'Money-in detail',
         'payout_detail' => 'Money-out detail',
-        'reconciliation_detail' => 'Reconciliation detail',
+        'reconciliation_detail' => 'Handover detail',
         'transaction_detail' => 'Transaction detail',
         'reports' => 'Reports',
         'source_apps' => 'Source Apps & API Keys',
@@ -172,11 +172,11 @@ function page_description(string $page): string
         'dashboard' => 'Cash position, work queue, and common treasury actions.',
         'payments' => 'Track entry fees, clan contributions, and GP received by admins.',
         'payouts' => 'Manage prizes, expenses, admin-paid payouts, and reimbursements.',
-        'reconciliation' => 'Move admin-held GP into the official treasury with a clear audit trail.',
+        'reconciliation' => 'Record GP handed over by admins into the official treasury with a clear audit trail.',
         'transactions' => 'Review posted ledger entries and reverse mistakes safely.',
         'settings' => 'Review Discord login status and app configuration.',
         'source_apps' => 'Manage source applications, API keys, scopes, and integration access.',
-        'reports' => 'Review revenue, expenses, official treasury movement, admin-held funds, and account activity.',
+        'reports' => 'Review revenue, expenses, official treasury movement, money owed by admins, and account activity.',
         'chart_accounts' => 'Manage revenue and expense ledger accounts used to categorise GP transactions.',
         'users' => 'Manage treasury users, Discord links, active status, and RSN changes.',
         'setup_rsn' => 'Link your Discord login to a treasury user before continuing.',
@@ -188,7 +188,7 @@ function page_description(string $page): string
         'new_admin_reimbursement' => 'Record a manual reimbursement from the official treasury to an admin.',
         'payment_detail' => 'Inspect the money-in request, linked ledger transactions, and audit trail.',
         'payout_detail' => 'Inspect the money-out request, linked ledger transactions, and audit trail.',
-        'reconciliation_detail' => 'Inspect the reconciliation, included payments, ledger movement, and audit trail.',
+        'reconciliation_detail' => 'Inspect the handover, included payments, ledger movement, and audit trail.',
         'transaction_detail' => 'Inspect the posted ledger transaction, lines, related records, and reversal options.',
     ][$page] ?? 'Standalone treasury control for clan GP.';
 }
@@ -228,18 +228,36 @@ function status_tabs(string $page, array $statuses): string
         <a class="<?= $active === '' ? 'active' : '' ?>" href="<?= h('?' . http_build_query($base)) ?>">All</a>
         <?php foreach ($statuses as $status): ?>
             <?php $params = array_merge($base, ['status' => $status]); ?>
-            <a class="<?= $active === $status ? 'active' : '' ?>" href="<?= h('?' . http_build_query($params)) ?>"><?= h(ucwords(str_replace('_', ' ', $status))) ?></a>
+            <a class="<?= $active === $status ? 'active' : '' ?>" href="<?= h('?' . http_build_query($params)) ?>"><?= h(status_label($status)) ?></a>
         <?php endforeach; ?>
     </nav>
     <?php
     return ob_get_clean();
 }
 
+function status_label(string $status): string
+{
+    return match ($status) {
+        'received_by_admin' => 'Owed to Treasury',
+        'reconciled_to_treasury' => 'Paid to Treasury',
+        'paid_from_treasury' => 'Paid from Treasury',
+        'paid_by_admin' => 'Paid by Admin',
+        'reimbursed' => 'Reimbursed',
+        'pending' => 'Pending',
+        'cancelled' => 'Cancelled',
+        'posted' => 'Posted',
+        'completed' => 'Completed',
+        'reversed' => 'Reversed',
+        'voided' => 'Voided',
+        'archived' => 'Archived',
+        default => ucwords(str_replace('_', ' ', $status)),
+    };
+}
+
 function badge(string $status): string
 {
-    $safe = h($status);
     $class = 'badge badge-' . strtolower(str_replace('_', '-', $status));
-    return '<span class="' . h($class) . '">' . $safe . '</span>';
+    return '<span class="' . h($class) . '">' . h(status_label($status)) . '</span>';
 }
 
 function require_acting_admin(): int
@@ -269,7 +287,7 @@ function selected_total_for_reconciliation(int $adminId, array $uuids): int
 {
     $uuids = array_values(array_unique(array_filter(array_map('strval', $uuids))));
     if (!$uuids) {
-        throw new InvalidArgumentException('Select at least one payment to reconcile.');
+        throw new InvalidArgumentException('Select at least one payment that has been paid into treasury.');
     }
 
     $rows = (new TreasuryQueryService())->unreconciledPaymentsByAdmin($adminId);
@@ -286,7 +304,7 @@ function selected_total_for_reconciliation(int $adminId, array $uuids): int
     $check = $uuids;
     sort($check);
     if ($seen !== $check) {
-        throw new RuntimeException('One or more selected payments cannot be reconciled for that admin.');
+        throw new RuntimeException('One or more selected payments cannot be paid into treasury for that admin.');
     }
 
     return $total;
@@ -570,12 +588,15 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 redirect_to('payments');
 
             case 'receive_payment_request':
+                $actingAdminId = require_acting_admin();
+                $holdingAdminId = (int)($_POST['admin_id'] ?? $actingAdminId);
                 (new PaymentRequestService())->receive((string)($_POST['request_uuid'] ?? ''), [
-                    'admin_id' => require_acting_admin(),
+                    'admin_id' => $holdingAdminId,
+                    'posted_by_admin_id' => $actingAdminId,
                     'received_at' => (($_POST['received_at'] ?? '') ?: 'now'),
                     'notes' => $_POST['notes'] ?? null,
                 ]);
-                Flash::add('success', 'Payment marked as received by admin.');
+                Flash::add('success', 'Payment recorded as held by the selected admin and owed to treasury.');
                 redirect_to('payments');
 
             case 'cancel_payment_request':
@@ -653,7 +674,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                     'completed_at' => (($_POST['completed_at'] ?? '') ?: 'now'),
                     'payment_request_uuids' => $uuids,
                 ]);
-                Flash::add('success', 'Selected admin-held payments reconciled into the official treasury.');
+                Flash::add('success', 'Selected admin-held payments recorded as paid into the official treasury.');
                 redirect_to('reconciliation', ['admin_id' => $fromAdminId]);
 
             case 'reverse_transaction':
@@ -934,16 +955,16 @@ function render_dashboard(TreasuryQueryService $query, array $admins): void
 
     <section class="metric-grid">
         <div class="metric"><span>Official Treasury</span><strong><?= h(GP::format($balances['official_treasury'])) ?></strong><small>GP physically in the official treasury</small></div>
-        <div class="metric"><span>Held by Admins</span><strong><?= h(GP::format($balances['admin_held_pending'])) ?></strong><small>Received but not yet reconciled</small></div>
+        <div class="metric"><span>Admins Owe Treasury</span><strong><?= h(GP::format($balances['admin_held_pending'])) ?></strong><small>Received by admins, not yet handed over</small></div>
         <div class="metric"><span>Owed to Admins</span><strong><?= h(GP::format($balances['admin_reimbursements_payable'])) ?></strong><small>Admin-paid costs awaiting reimbursement</small></div>
-        <div class="metric"><span>Net Clan GP</span><strong><?= h(GP::format($balances['total_clan_gp'])) ?></strong><small>Official + held - reimbursements</small></div>
+        <div class="metric"><span>Net Clan GP</span><strong><?= h(GP::format($balances['total_clan_gp'])) ?></strong><small>Official + owed by admins - reimbursements</small></div>
     </section>
 
     <section class="workflow-grid">
         <a class="workflow-card" href="<?= h(url_for('payments')) ?>">
             <span>Money in</span>
             <strong>Entry fees & contributions</strong>
-            <small>Create requests, mark GP as received, then reconcile it later.</small>
+            <small>Create requests, record who received the GP, then record when it is handed to treasury.</small>
         </a>
         <a class="workflow-card" href="<?= h(url_for('payouts')) ?>">
             <span>Money out</span>
@@ -952,8 +973,8 @@ function render_dashboard(TreasuryQueryService $query, array $admins): void
         </a>
         <a class="workflow-card" href="<?= h(url_for('reconciliation')) ?>">
             <span>Banking</span>
-            <strong>Reconcile admin-held GP</strong>
-            <small>Select received payments that have moved into the official treasury.</small>
+            <strong>Record treasury handover</strong>
+            <small>Select admin-held GP only after it has actually been handed into the official treasury.</small>
         </a>
     </section>
 
@@ -965,28 +986,28 @@ function render_dashboard(TreasuryQueryService $query, array $admins): void
             </div>
             <div class="queue-grid">
                 <a href="<?= h(url_for('payments', ['status' => 'pending'])) ?>"><strong><?= (int)$stats['pending_payments'] ?></strong><span>payments awaiting receipt</span></a>
-                <a href="<?= h(url_for('payments', ['status' => 'received_by_admin'])) ?>"><strong><?= (int)$stats['received_unreconciled_payments'] ?></strong><span>received payments to reconcile</span></a>
+                <a href="<?= h(url_for('payments', ['status' => 'received_by_admin'])) ?>"><strong><?= (int)$stats['received_unreconciled_payments'] ?></strong><span>admin-held GP owed to treasury</span></a>
                 <a href="<?= h(url_for('payouts', ['status' => 'pending'])) ?>"><strong><?= (int)$stats['pending_payouts'] ?></strong><span>payouts awaiting action</span></a>
                 <a href="<?= h(url_for('payouts', ['status' => 'paid_by_admin'])) ?>"><strong><?= (int)$stats['admin_paid_unreimbursed'] ?></strong><span>admin-paid items to reimburse</span></a>
             </div>
         </div>
         <div class="card">
             <div class="section-header">
-                <h2>Admin-held GP</h2>
-                <a class="button small" href="<?= h(url_for('reconciliation')) ?>">Open reconciliation</a>
+                <h2>Money owed by admins</h2>
+                <a class="button small" href="<?= h(url_for('reconciliation')) ?>">Record handover</a>
             </div>
             <?php if (!$balances['admin_held_breakdown']): ?>
-                <p class="muted">No admin-held GP recorded yet.</p>
+                <p class="muted">No admin-held money owed to treasury yet.</p>
             <?php else: ?>
                 <div class="table-wrap">
                     <table>
-                        <thead><tr><th>Admin</th><th class="right">Held GP</th><th></th></tr></thead>
+                        <thead><tr><th>Admin</th><th class="right">Owes Treasury</th><th></th></tr></thead>
                         <tbody>
                         <?php foreach ($balances['admin_held_breakdown'] as $row): ?>
                             <tr>
                                 <td><?= h($row['display_name'] ?: $row['rsn']) ?></td>
                                 <td class="right amount"><?= h(GP::format($row['balance'])) ?></td>
-                                <td class="right"><a href="<?= h(url_for('reconciliation', ['admin_id' => (int)$row['admin_id']])) ?>">Reconcile</a></td>
+                                <td class="right"><a href="<?= h(url_for('reconciliation', ['admin_id' => (int)$row['admin_id']])) ?>">Record handover</a></td>
                             </tr>
                         <?php endforeach; ?>
                         </tbody>
@@ -1033,15 +1054,15 @@ function render_payments(TreasuryQueryService $query): void
     <section class="status-summary">
         <div class="summary-tile"><span>Visible total</span><strong><?= h(GP::format(amount_rows_by_status($rows))) ?></strong></div>
         <div class="summary-tile"><span>Pending</span><strong><?= count_rows_by_status($rows, 'pending') ?></strong></div>
-        <div class="summary-tile"><span>Received</span><strong><?= count_rows_by_status($rows, 'received_by_admin') ?></strong></div>
-        <div class="summary-tile"><span>Reconciled</span><strong><?= count_rows_by_status($rows, 'reconciled_to_treasury') ?></strong></div>
+        <div class="summary-tile"><span>Owed to treasury</span><strong><?= count_rows_by_status($rows, 'received_by_admin') ?></strong></div>
+        <div class="summary-tile"><span>Paid to treasury</span><strong><?= count_rows_by_status($rows, 'reconciled_to_treasury') ?></strong></div>
     </section>
 
     <section class="card">
         <div class="section-header">
             <div>
                 <h2>Payment requests</h2>
-                <p class="muted">Follow GP from expected payment, to admin receipt, to treasury reconciliation.</p>
+                <p class="muted">Follow GP from expected payment, to the admin currently holding it, then to the official treasury.</p>
             </div>
             <a class="button primary" href="<?= h(url_for('new_payment')) ?>">New money-in request</a>
         </div>
@@ -1049,7 +1070,7 @@ function render_payments(TreasuryQueryService $query): void
         <div class="filter-panel"><?php render_request_filters('payments', $statuses); ?></div>
         <div class="table-wrap">
             <table>
-                <thead><tr><th>Created</th><th>Payer</th><th>Description</th><th>Revenue account</th><th class="right">Amount</th><th>Status</th><th>Received by</th><th>Action</th></tr></thead>
+                <thead><tr><th>Created</th><th>Payer</th><th>Description</th><th>Revenue account</th><th class="right">Amount</th><th>Status</th><th>Admin holding GP</th><th>Action</th></tr></thead>
                 <tbody>
                 <?php foreach ($rows as $row): ?>
                     <tr>
@@ -1063,12 +1084,7 @@ function render_payments(TreasuryQueryService $query): void
                         <td class="actions-cell">
                             <a class="button small" href="<?= h(url_for('payment_detail', ['uuid' => $row['request_uuid']])) ?>">View</a>
                             <?php if ($row['status'] === 'pending'): ?>
-                                <form method="post" class="row-action">
-                                    <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                                    <input type="hidden" name="action" value="receive_payment_request">
-                                    <input type="hidden" name="request_uuid" value="<?= h($row['request_uuid']) ?>">
-                                    <button class="button small primary" type="submit">Receive</button>
-                                </form>
+                                <a class="button small primary" href="<?= h(url_for('payment_detail', ['uuid' => $row['request_uuid']])) ?>">Record receipt</a>
                                 <form method="post" class="row-action" onsubmit="return confirm('Cancel this pending payment request?');">
                                     <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
                                     <input type="hidden" name="action" value="cancel_payment_request">
@@ -1076,7 +1092,7 @@ function render_payments(TreasuryQueryService $query): void
                                     <button class="button small danger" type="submit">Cancel</button>
                                 </form>
                             <?php elseif ($row['status'] === 'received_by_admin'): ?>
-                                <a class="button small" href="<?= h(url_for('reconciliation', ['admin_id' => (int)($row['received_by_admin_id'] ?? 0)])) ?>">Reconcile</a>
+                                <a class="button small" href="<?= h(url_for('reconciliation', ['admin_id' => (int)($row['received_by_admin_id'] ?? 0)])) ?>">Record handover</a>
                             <?php else: ?>
                                 <span class="muted">—</span>
                             <?php endif; ?>
@@ -1170,7 +1186,7 @@ function render_new_payment(array $revenueAccounts): void
             <form method="post" class="grid-form">
                 <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
                 <input type="hidden" name="action" value="create_payment_request">
-                <label>Deposit account <input value="Admin-held funds — selected when the payment is received" disabled></label>
+                <label>Deposit account <input value="Admin funds owed to treasury — selected when payment is received" disabled></label>
                 <label>Payer RSN <input name="player_rsn" required></label>
                 <label>Amount <input name="amount" placeholder="10m" required></label>
                 <label>Revenue account <?= account_select($revenueAccounts, 'revenue_account_id') ?></label>
@@ -1294,12 +1310,12 @@ function render_reconciliation(TreasuryQueryService $query, array $admins): void
     $selectedAdminId = (int)($_GET['admin_id'] ?? AdminSession::actingAdminId() ?? ($admins[0]['id'] ?? 0));
     $adminFilter = $selectedAdminId > 0 ? $selectedAdminId : null;
     $rows = $query->unreconciledPaymentsByAdmin($adminFilter);
-    $history = $query->reconciliations($adminFilter ? ['admin_id' => $adminFilter] : [], 50);
+    $history = $query->handovers($adminFilter ? ['admin_id' => $adminFilter] : [], 50);
     $total = array_sum(array_map(fn($row) => (int)$row['amount'], $rows));
     ?>
     <section class="card">
-        <h2>Reconcile admin-held funds into official treasury</h2>
-        <p class="muted">Select received payments that have physically been moved from an admin to the official treasury.</p>
+        <h2>Record admin handover into official treasury</h2>
+        <p class="muted">Select only the payments that have physically been handed over by an admin and deposited into the official treasury.</p>
         <form method="get" class="filter-form">
             <input type="hidden" name="page" value="reconciliation">
             <label>Admin <?= admin_select('admin_id', $selectedAdminId, true) ?></label>
@@ -1308,9 +1324,9 @@ function render_reconciliation(TreasuryQueryService $query, array $admins): void
     </section>
 
     <section class="card">
-        <div class="section-header"><h2>Unreconciled received payments</h2><span class="pill">Visible total: <?= h(GP::format($total)) ?></span></div>
+        <div class="section-header"><h2>Money owed to treasury</h2><span class="pill">Visible total: <?= h(GP::format($total)) ?></span></div>
         <?php if (!$rows): ?>
-            <p class="empty">No received payments are waiting for reconciliation.</p>
+            <p class="empty">No admin-held money is currently owed to treasury for this filter.</p>
         <?php else: ?>
             <form method="post">
                 <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
@@ -1333,8 +1349,8 @@ function render_reconciliation(TreasuryQueryService $query, array $admins): void
                         </tbody>
                     </table>
                 </div>
-                <label class="full-width">Notes <textarea name="notes" placeholder="Optional reconciliation note"></textarea></label>
-                <div class="form-actions"><button class="button primary" type="submit">Reconcile selected payments</button></div>
+                <label class="full-width">Notes <textarea name="notes" placeholder="Optional handover note, e.g. paid into official treasury by the listed admin"></textarea></label>
+                <div class="form-actions"><button class="button primary" type="submit">Record selected payments as handed over</button></div>
             </form>
         <?php endif; ?>
     </section>
@@ -1345,14 +1361,14 @@ function render_reconciliation(TreasuryQueryService $query, array $admins): void
             <span class="pill"><?= count($history) ?> recent</span>
         </div>
         <?php if (!$history): ?>
-            <p class="empty">No completed reconciliations found for this filter.</p>
+            <p class="empty">No completed handovers found for this filter.</p>
         <?php else: ?>
             <div class="transaction-list">
                 <?php foreach ($history as $recon): ?>
                     <details class="transaction-card">
                         <summary>
                             <span>
-                                <strong><a href="<?= h(url_for('reconciliation_detail', ['uuid' => $recon['reconciliation_uuid']])) ?>"><?= h($recon['from_admin_display_name'] ?: $recon['from_admin_rsn']) ?> reconciled <?= h(GP::format($recon['amount'])) ?></a></strong>
+                                <strong><a href="<?= h(url_for('reconciliation_detail', ['uuid' => $recon['reconciliation_uuid']])) ?>"><?= h($recon['from_admin_display_name'] ?: $recon['from_admin_rsn']) ?> handed over <?= h(GP::format($recon['amount'])) ?></a></strong>
                                 <small><?= h(local_datetime($recon['completed_at'] ?: $recon['created_at'])) ?> · <?= h($recon['linked_payment_count']) ?> linked payment<?= (int)$recon['linked_payment_count'] === 1 ? '' : 's' ?></small>
                             </span>
                             <span><?= badge($recon['status']) ?></span>
@@ -1361,7 +1377,7 @@ function render_reconciliation(TreasuryQueryService $query, array $admins): void
                             <?php if (!empty($recon['notes'])): ?><p class="muted"><?= h($recon['notes']) ?></p><?php endif; ?>
                             <?php if (!empty($recon['transaction_uuid'])): ?><p class="muted">Ledger transaction: <a href="<?= h(url_for('transaction_detail', ['uuid' => $recon['transaction_uuid']])) ?>"><code><?= h($recon['transaction_uuid']) ?></code></a></p><?php endif; ?>
                             <?php if (empty($recon['linked_payments'])): ?>
-                                <p class="muted">No linked payment requests were recorded for this reconciliation.</p>
+                                <p class="muted">No linked payment requests were recorded for this handover.</p>
                             <?php else: ?>
                                 <table>
                                     <thead><tr><th>Received</th><th>Payer</th><th>Description</th><th class="right">Amount</th></tr></thead>
@@ -1435,7 +1451,7 @@ function render_payment_detail(TreasuryQueryService $query): void
         <div>
             <a class="muted" href="<?= h(url_for('payments')) ?>">← Back to Money in</a>
             <h2><?= h($payment['description']) ?></h2>
-            <p class="muted">Money received from <strong><?= h($payment['player_rsn']) ?></strong>.</p>
+            <p class="muted">Money requested from <strong><?= h($payment['player_rsn']) ?></strong>.</p>
         </div>
         <div class="detail-header-actions">
             <?= badge($payment['status']) ?>
@@ -1452,9 +1468,9 @@ function render_payment_detail(TreasuryQueryService $query): void
                 <div><span>Revenue account</span><strong><code><?= h($payment['revenue_account_code'] ?? '—') ?></code> <?= h($payment['revenue_account_name'] ?? '') ?></strong></div>
                 <div><span>Status</span><strong><?= badge($payment['status']) ?></strong></div>
                 <div><span>Created</span><strong><?= h(local_datetime($payment['created_at'])) ?></strong></div>
-                <div><span>Received</span><strong><?= h(local_datetime($payment['received_at'] ?? null)) ?></strong></div>
-                <div><span>Received by</span><strong><?= h($payment['received_by_display_name'] ?: $payment['received_by_rsn'] ?: '—') ?></strong></div>
-                <div><span>Reconciled</span><strong><?= h(local_datetime($payment['reconciled_at'] ?? null)) ?></strong></div>
+                <div><span>Held since</span><strong><?= h(local_datetime($payment['received_at'] ?? null)) ?></strong></div>
+                <div><span>Admin holding GP</span><strong><?= h($payment['received_by_display_name'] ?: $payment['received_by_rsn'] ?: '—') ?></strong></div>
+                <div><span>Paid to treasury</span><strong><?= h(local_datetime($payment['reconciled_at'] ?? null)) ?></strong></div>
             </div>
             <?php if (!empty($payment['metadata'])): ?>
                 <details class="detail-json"><summary>Metadata</summary><pre><?= h(pretty_json($payment['metadata'])) ?></pre></details>
@@ -1469,7 +1485,10 @@ function render_payment_detail(TreasuryQueryService $query): void
                         <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
                         <input type="hidden" name="action" value="receive_payment_request">
                         <input type="hidden" name="request_uuid" value="<?= h($payment['request_uuid']) ?>">
-                        <button class="button primary" type="submit">Mark as received by acting admin</button>
+                        <label>Admin holding GP <?= admin_select('admin_id', AdminSession::actingAdminId() ?? 0) ?></label>
+                        <label>Received at <input name="received_at" placeholder="now"></label>
+                        <label>Notes <textarea name="notes" placeholder="Optional note, e.g. received at GE from payer"></textarea></label>
+                        <button class="button primary" type="submit">Record as owed to treasury</button>
                     </form>
                     <form method="post" class="stacked-form compact" onsubmit="return confirm('Cancel this pending payment request?');">
                         <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
@@ -1478,7 +1497,7 @@ function render_payment_detail(TreasuryQueryService $query): void
                         <button class="button danger" type="submit">Cancel request</button>
                     </form>
                 <?php elseif ($payment['status'] === 'received_by_admin'): ?>
-                    <a class="button primary" href="<?= h(url_for('reconciliation', ['admin_id' => (int)($payment['received_by_admin_id'] ?? 0)])) ?>">Reconcile this admin’s received funds</a>
+                    <a class="button primary" href="<?= h(url_for('reconciliation', ['admin_id' => (int)($payment['received_by_admin_id'] ?? 0)])) ?>">Record this admin’s handover</a>
                 <?php else: ?>
                     <p class="muted">No direct actions are available for this request state.</p>
                 <?php endif; ?>
@@ -1571,9 +1590,9 @@ function render_reconciliation_detail(TreasuryQueryService $query): void
     ?>
     <section class="detail-header card">
         <div>
-            <a class="muted" href="<?= h(url_for('reconciliation', ['admin_id' => (int)$recon['from_admin_id']])) ?>">← Back to reconciliation</a>
-            <h2><?= h($recon['from_admin_display_name'] ?: $recon['from_admin_rsn']) ?> reconciled <?= h(GP::format($recon['amount'])) ?></h2>
-            <p class="muted">Admin-held GP moved into the official treasury.</p>
+            <a class="muted" href="<?= h(url_for('reconciliation', ['admin_id' => (int)$recon['from_admin_id']])) ?>">← Back to handovers</a>
+            <h2><?= h($recon['from_admin_display_name'] ?: $recon['from_admin_rsn']) ?> handed over <?= h(GP::format($recon['amount'])) ?></h2>
+            <p class="muted">Admin-held GP was handed over and recorded in the official treasury.</p>
         </div>
         <div class="detail-header-actions">
             <?= badge($recon['status']) ?>
@@ -1597,7 +1616,7 @@ function render_reconciliation_detail(TreasuryQueryService $query): void
     <section class="card">
         <div class="section-header"><h2>Included payments</h2><span class="pill"><?= count($recon['linked_payments'] ?? []) ?> payments</span></div>
         <?php if (empty($recon['linked_payments'])): ?>
-            <p class="empty">No linked payment requests were recorded for this reconciliation.</p>
+            <p class="empty">No linked payment requests were recorded for this handover.</p>
         <?php else: ?>
             <div class="table-wrap"><table>
                 <thead><tr><th>Received</th><th>Payer</th><th>Description</th><th class="right">Amount</th></tr></thead>
@@ -1615,8 +1634,8 @@ function render_reconciliation_detail(TreasuryQueryService $query): void
         <?php endif; ?>
     </section>
 
-    <?php render_linked_transactions($linkedTransactions, 'No ledger transaction is linked to this reconciliation.'); ?>
-    <?php render_audit_log($audit, 'No audit events found for this reconciliation.'); ?>
+    <?php render_linked_transactions($linkedTransactions, 'No ledger transaction is linked to this handover.'); ?>
+    <?php render_audit_log($audit, 'No audit events found for this handover.'); ?>
     <?php
 }
 
@@ -1741,7 +1760,7 @@ function render_transaction_links(array $transaction): void
     $links = [];
     if (!empty($transaction['source_type']) && !empty($transaction['source_id'])) {
         if ($transaction['source_type'] === 'reconciliation') {
-            $links[] = '<a href="' . h(url_for('reconciliation_detail', ['uuid' => $transaction['source_id']])) . '">Open reconciliation</a>';
+            $links[] = '<a href="' . h(url_for('reconciliation_detail', ['uuid' => $transaction['source_id']])) . '">Open handover</a>';
         } elseif ($transaction['source_type'] === 'payment_request' && preg_match('/^[0-9a-fA-F-]{36}$/', (string)$transaction['source_id'])) {
             $links[] = '<a href="' . h(url_for('payment_detail', ['uuid' => $transaction['source_id']])) . '">Open money-in request</a>';
         }
@@ -2026,7 +2045,7 @@ function render_users(array $admins): void
                         <td><?= $admin['discord_user_id'] ? '<code>' . h($admin['discord_user_id']) . '</code>' : '<span class="muted">Not linked</span>' ?></td>
                         <td>
                             <?= $usageTotal ?> references
-                            <small><?= (int)($admin['ledger_entry_count'] ?? 0) ?> ledger · <?= (int)($admin['received_payment_count'] ?? 0) ?> received · <?= (int)($admin['paid_payout_count'] ?? 0) ?> paid · <?= (int)($admin['reconciliation_count'] ?? 0) ?> reconciliations</small>
+                            <small><?= (int)($admin['ledger_entry_count'] ?? 0) ?> ledger · <?= (int)($admin['received_payment_count'] ?? 0) ?> received · <?= (int)($admin['paid_payout_count'] ?? 0) ?> paid · <?= (int)($admin['reconciliation_count'] ?? 0) ?> handovers</small>
                         </td>
                         <td><?= $isActive ? badge('active') : badge('archived') ?></td>
                         <td class="actions-cell">
@@ -2128,7 +2147,7 @@ function render_reports(ReportService $reports): void
         <nav class="status-tabs report-tabs" aria-label="Report tabs">
             <a class="<?= $activeReport === 'profit_loss' ? 'active' : '' ?>" href="<?= h(url_for('reports', array_filter(['report' => 'profit_loss', 'from' => $bounds['from'], 'to' => $bounds['to']], fn($v) => $v !== ''))) ?>">Revenue & expenses</a>
             <a class="<?= $activeReport === 'treasury_movement' ? 'active' : '' ?>" href="<?= h(url_for('reports', array_filter(['report' => 'treasury_movement', 'from' => $bounds['from'], 'to' => $bounds['to']], fn($v) => $v !== ''))) ?>">Treasury movement</a>
-            <a class="<?= $activeReport === 'admin_held' ? 'active' : '' ?>" href="<?= h(url_for('reports', array_filter(['report' => 'admin_held', 'from' => $bounds['from'], 'to' => $bounds['to']], fn($v) => $v !== ''))) ?>">Admin-held funds</a>
+            <a class="<?= $activeReport === 'admin_held' ? 'active' : '' ?>" href="<?= h(url_for('reports', array_filter(['report' => 'admin_held', 'from' => $bounds['from'], 'to' => $bounds['to']], fn($v) => $v !== ''))) ?>">Admin funds owed</a>
             <a class="<?= $activeReport === 'account_activity' ? 'active' : '' ?>" href="<?= h(url_for('reports', array_filter(['report' => 'account_activity', 'account_id' => $selectedAccountId, 'from' => $bounds['from'], 'to' => $bounds['to']], fn($v) => $v !== '' && $v !== 0))) ?>">Account activity</a>
         </nav>
         <?php render_report_filters($activeReport, $bounds, $accounts, $selectedAccountId); ?>
@@ -2254,23 +2273,23 @@ function render_admin_held_report(array $report): void
 {
     ?>
     <section class="metric-grid">
-        <div class="metric"><span>Currently admin-held</span><strong><?= h(GP::format($report['totals']['current_held'])) ?></strong><small>GP not yet in official treasury</small></div>
+        <div class="metric"><span>Admins owe treasury</span><strong><?= h(GP::format($report['totals']['current_held'])) ?></strong><small>GP received by admins, not yet handed over</small></div>
         <div class="metric"><span>Received in period</span><strong><?= h(GP::format($report['totals']['received_amount'])) ?></strong><small><?= (int)$report['totals']['received_count'] ?> payments</small></div>
-        <div class="metric"><span>Reconciled in period</span><strong><?= h(GP::format($report['totals']['reconciled_amount'])) ?></strong><small><?= (int)$report['totals']['reconciled_count'] ?> reconciliations</small></div>
+        <div class="metric"><span>Handed over in period</span><strong><?= h(GP::format($report['totals']['reconciled_amount'])) ?></strong><small><?= (int)$report['totals']['reconciled_count'] ?> handovers</small></div>
         <div class="metric"><span>Admins</span><strong><?= count($report['rows']) ?></strong><small>Active and archived users</small></div>
     </section>
     <section class="card">
-        <h2>Admin-held funds</h2>
+        <h2>Admin funds owed</h2>
         <div class="table-wrap">
             <table>
-                <thead><tr><th>Admin</th><th class="right">Currently held</th><th class="right">Received in period</th><th class="right">Reconciled in period</th><th>Last reconciliation</th></tr></thead>
+                <thead><tr><th>Admin</th><th class="right">Owed to treasury</th><th class="right">Received in period</th><th class="right">Handed over in period</th><th>Last handover</th></tr></thead>
                 <tbody>
                 <?php foreach ($report['rows'] as $row): ?>
                     <tr>
                         <td><?= h($row['display_name'] ?: $row['rsn']) ?><?= (int)$row['is_active'] === 1 ? '' : ' ' . badge('archived') ?><small><?= h($row['rsn']) ?></small></td>
                         <td class="right amount"><?= h(GP::format($row['current_held'])) ?></td>
                         <td class="right amount"><?= h(GP::format($row['received_amount'])) ?><small><?= (int)$row['received_count'] ?> payments</small></td>
-                        <td class="right amount"><?= h(GP::format($row['reconciled_amount'])) ?><small><?= (int)$row['reconciled_count'] ?> reconciliations</small></td>
+                        <td class="right amount"><?= h(GP::format($row['reconciled_amount'])) ?><small><?= (int)$row['reconciled_count'] ?> handovers</small></td>
                         <td><?= h(local_datetime($row['last_reconciled_at'] ?? null)) ?></td>
                     </tr>
                 <?php endforeach; ?>

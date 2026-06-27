@@ -10,7 +10,7 @@ use Treasury\Support\Env;
 
 final class DatabaseBootstrap
 {
-    private const SCHEMA_VERSION = '2026.06.26.bootstrap.2.users';
+    private const SCHEMA_VERSION = '2026.06.27.admin-owed-wording';
 
     private const SYSTEM_APPS = [
         [
@@ -22,7 +22,7 @@ final class DatabaseBootstrap
 
     private const SYSTEM_ACCOUNTS = [
         ['code' => '1000', 'name' => 'Official Treasury', 'account_type' => 'asset', 'normal_balance' => 'debit', 'parent_code' => null],
-        ['code' => '1100', 'name' => 'Admin Held Funds', 'account_type' => 'asset', 'normal_balance' => 'debit', 'parent_code' => null],
+        ['code' => '1100', 'name' => 'Admin Funds Owed to Treasury', 'account_type' => 'asset', 'normal_balance' => 'debit', 'parent_code' => null],
         ['code' => '2000', 'name' => 'Admin Reimbursements Payable', 'account_type' => 'liability', 'normal_balance' => 'credit', 'parent_code' => null],
         ['code' => '3000', 'name' => 'Opening Balance Equity', 'account_type' => 'equity', 'normal_balance' => 'credit', 'parent_code' => null],
         ['code' => '4000', 'name' => 'Revenue', 'account_type' => 'income', 'normal_balance' => 'credit', 'parent_code' => null],

@@ -344,7 +344,7 @@ final class AccountService
 
         $parentId = $this->accountIdByCode('1100');
         $code = '1100:' . $adminId;
-        $name = 'Admin Held Funds - ' . ($admin['display_name'] ?: $admin['rsn']);
+        $name = 'Funds Owed by Admin - ' . ($admin['display_name'] ?: $admin['rsn']);
 
         $insert = $pdo->prepare(
             'INSERT INTO treasury_accounts

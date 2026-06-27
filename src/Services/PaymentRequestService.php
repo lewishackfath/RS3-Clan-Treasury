@@ -84,8 +84,12 @@ final class PaymentRequestService
     public function receive(string $uuid, array $data): array
     {
         $adminId = (int)($data['admin_id'] ?? 0);
+        $postedByAdminId = (int)($data['posted_by_admin_id'] ?? $adminId);
         if ($adminId <= 0) {
             throw new \InvalidArgumentException('admin_id is required');
+        }
+        if ($postedByAdminId <= 0) {
+            throw new \InvalidArgumentException('posted_by_admin_id is required');
         }
 
         $pdo = Database::pdo();
@@ -112,7 +116,7 @@ final class PaymentRequestService
                 'description' => $row['description'],
                 'notes' => $data['notes'] ?? null,
                 'occurred_at' => $data['received_at'] ?? 'now',
-                'posted_by_admin_id' => $adminId,
+                'posted_by_admin_id' => $postedByAdminId,
                 'metadata' => ['payment_request_id' => (int)$row['id']],
             ], [
                 [
@@ -121,7 +125,7 @@ final class PaymentRequestService
                     'amount' => (int)$row['amount'],
                     'admin_id' => $adminId,
                     'player_rsn' => $row['player_rsn'],
-                    'memo' => 'GP received by admin',
+                    'memo' => 'GP held by admin and owed to treasury',
                 ],
                 [
                     'account_id' => $incomeAccountId,
@@ -150,7 +154,7 @@ final class PaymentRequestService
             $pdo->commit();
 
             $after = $this->getByUuid($uuid);
-            AuditService::log('payment_request.received', 'treasury_payment_request', $uuid, $this->format($row), $after, null, $adminId);
+            AuditService::log('payment_request.received', 'treasury_payment_request', $uuid, $this->format($row), $after, null, $postedByAdminId);
             return $after;
         } catch (\Throwable $e) {
             $pdo->rollBack();
