@@ -529,3 +529,8 @@ RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 ```
 
 The API auth layer also checks `HTTP_AUTHORIZATION`, `REDIRECT_HTTP_AUTHORIZATION`, and `getallheaders()` as fallbacks.
+
+
+## Source app slugs
+
+When source apps are created from the web UI, the slug is generated automatically from the app name. For example, `Runes of Power` becomes `runes_of_power`. If that slug already exists, the app will use the next available suffix, such as `runes_of_power_2`. Existing source apps can still have their slug edited from the Source Apps table, but avoid changing a slug once external integrations depend on it.

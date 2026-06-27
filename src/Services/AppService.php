@@ -127,16 +127,26 @@ final class AppService
     public function create(array $data): array
     {
         $name = trim((string)($data['name'] ?? ''));
-        $slug = $this->normaliseSlug((string)($data['slug'] ?? ''), $name);
-
         if ($name === '') {
             throw new \InvalidArgumentException('App name is required.');
         }
 
+        $requestedSlug = trim((string)($data['slug'] ?? ''));
+        $slug = $requestedSlug === ''
+            ? $this->uniqueSlugForName($name)
+            : $this->normaliseSlug($requestedSlug, $name);
+
+        if ($requestedSlug !== '') {
+            $existing = Database::pdo()->prepare('SELECT id FROM treasury_apps WHERE slug = :slug LIMIT 1');
+            $existing->execute(['slug' => $slug]);
+            if ($existing->fetchColumn()) {
+                throw new \InvalidArgumentException('Another source app already uses that slug.');
+            }
+        }
+
         $stmt = Database::pdo()->prepare(
             'INSERT INTO treasury_apps (name, slug, description, is_active)
-             VALUES (:name, :slug, :description, 1)
-             ON DUPLICATE KEY UPDATE name = VALUES(name), description = VALUES(description), is_active = 1, updated_at = NOW()'
+             VALUES (:name, :slug, :description, 1)'
         );
         $stmt->execute([
             'name' => $name,
@@ -348,12 +358,36 @@ final class AppService
         return $counts;
     }
 
+    private function uniqueSlugForName(string $name): string
+    {
+        $base = $this->normaliseSlug('', $name);
+        $slug = $base;
+        $counter = 2;
+
+        $stmt = Database::pdo()->prepare('SELECT COUNT(*) FROM treasury_apps WHERE slug = :slug');
+        while (true) {
+            $stmt->execute(['slug' => $slug]);
+            if ((int)$stmt->fetchColumn() === 0) {
+                return $slug;
+            }
+            $slug = $base . '_' . $counter;
+            $counter++;
+        }
+    }
+
     private function normaliseSlug(string $slug, string $fallbackName): string
     {
         $slug = trim($slug);
         if ($slug === '') {
             $slug = strtolower(preg_replace('/[^a-z0-9]+/i', '_', $fallbackName) ?? '');
             $slug = trim($slug, '_');
+        } else {
+            $slug = strtolower($slug);
+            $slug = preg_replace('/[^a-z0-9_\-]+/i', '_', $slug) ?? '';
+            $slug = trim($slug, '_-');
+        }
+        if ($slug === '') {
+            throw new \InvalidArgumentException('Source app name must contain at least one letter or number for the generated slug.');
         }
         if (!preg_match('/^[a-z0-9_\-]+$/', $slug)) {
             throw new \InvalidArgumentException('Slug may only contain letters, numbers, underscores and dashes.');

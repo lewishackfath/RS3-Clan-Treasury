@@ -2341,9 +2341,8 @@ function render_source_apps(array $apps, array $apiKeys): void
             <form method="post" class="grid-form">
                 <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
                 <input type="hidden" name="action" value="create_app">
-                <label>Name <input name="name" placeholder="Bingo" required></label>
-                <label>Slug <input name="slug" placeholder="bingo"></label>
-                <label class="wide">Description <input name="description" placeholder="Creates payment and payout requests for Bingo events"></label>
+                <label>Name <input name="name" placeholder="Runes of Power" required><small>The slug is generated automatically, for example <code>runes_of_power</code>.</small></label>
+                <label class="wide">Description <input name="description" placeholder="Creates payment and payout requests for this app"></label>
                 <div class="form-actions"><button class="button primary" type="submit">Create source app</button></div>
             </form>
         </div>
@@ -2430,7 +2429,7 @@ function render_source_apps(array $apps, array $apiKeys): void
                                         <input type="hidden" name="action" value="update_app">
                                         <input type="hidden" name="app_id" value="<?= (int)$app['id'] ?>">
                                         <label>Name <input name="name" value="<?= h($app['name']) ?>" required></label>
-                                        <label>Slug <input name="slug" value="<?= h($app['slug']) ?>" required></label>
+                                        <label>Slug <input name="slug" value="<?= h($app['slug']) ?>" required><small>Changing this may affect integrations that look up records by source app slug.</small></label>
                                         <label>Description <input name="description" value="<?= h($app['description'] ?? '') ?>"></label>
                                         <button class="button small primary" type="submit">Save source app</button>
                                     </form>
