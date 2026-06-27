@@ -9,9 +9,36 @@ use Treasury\Database;
 
 final class ApiAuth
 {
+    private static function bearerHeader(): string
+    {
+        $candidates = [
+            $_SERVER['HTTP_AUTHORIZATION'] ?? '',
+            $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '',
+            $_SERVER['Authorization'] ?? '',
+        ];
+
+        if (function_exists('getallheaders')) {
+            $headers = getallheaders();
+            foreach ($headers as $name => $value) {
+                if (strcasecmp((string)$name, 'Authorization') === 0) {
+                    $candidates[] = (string)$value;
+                }
+            }
+        }
+
+        foreach ($candidates as $candidate) {
+            $candidate = trim((string)$candidate);
+            if ($candidate !== '') {
+                return $candidate;
+            }
+        }
+
+        return '';
+    }
+
     public static function requireContext(?string $requiredScope = null): ApiContext
     {
-        $header = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+        $header = self::bearerHeader();
         if (!preg_match('/^Bearer\s+(.+)$/i', $header, $matches)) {
             throw new \RuntimeException('Missing bearer token', 401);
         }

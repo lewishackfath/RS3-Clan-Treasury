@@ -515,3 +515,17 @@ Required scope: `balances:read`.
 - Repeating the same source reference returns the existing request instead of creating a duplicate.
 - `revenue_account_code` and `expense_account_code` must refer to active user-managed GL accounts.
 - Use idempotency keys for safe retries on POST requests.
+
+
+## Apache Authorization header note
+
+If API calls return `Missing bearer token` even though curl is sending `Authorization: Bearer ...`, Apache/FastCGI is probably not passing the `Authorization` header through to PHP.
+
+This build includes a `.htaccess` fix:
+
+```apache
+SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+```
+
+The API auth layer also checks `HTTP_AUTHORIZATION`, `REDIRECT_HTTP_AUTHORIZATION`, and `getallheaders()` as fallbacks.

@@ -1,4 +1,10 @@
 RewriteEngine On
+
+# Preserve Authorization for PHP under Apache/FastCGI.
+# Without this, Bearer tokens may be stripped before PHP sees them.
+SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^api/ api.php [L,QSA]
