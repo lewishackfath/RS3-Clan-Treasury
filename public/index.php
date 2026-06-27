@@ -7,6 +7,7 @@ require_once __DIR__ . '/../src/bootstrap.php';
 use Treasury\Auth\DiscordOAuth;
 use Treasury\Services\AdminService;
 use Treasury\Services\AccountService;
+use Treasury\Services\AdminBalanceOffsetService;
 use Treasury\Services\AppService;
 use Treasury\Services\BalanceService;
 use Treasury\Services\ManualLedgerService;
@@ -855,6 +856,17 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 Flash::add('success', 'Selected admin-held payments recorded as paid into the official treasury.');
                 redirect_to('reconciliation', ['admin_id' => $fromAdminId]);
 
+            case 'offset_admin_balance':
+                $adminId = (int)($_POST['admin_id'] ?? 0);
+                $result = (new AdminBalanceOffsetService())->offsetEqualAdminBalance(
+                    $adminId,
+                    require_acting_admin(),
+                    $_POST['notes'] ?? null,
+                    (($_POST['occurred_at'] ?? '') ?: 'now')
+                );
+                Flash::add('success', 'Offset posted for ' . GP::format((int)$result['amount']) . '. Transaction ' . $result['transaction_uuid'] . '.');
+                redirect_to('reconciliation', ['admin_id' => $adminId]);
+
             case 'reverse_transaction':
                 $result = (new ReversalService())->reverse(
                     (string)($_POST['transaction_uuid'] ?? ''),
@@ -1548,7 +1560,8 @@ function render_reconciliation(TreasuryQueryService $query, array $admins): void
     $selectedAdminId = (int)($_GET['admin_id'] ?? AdminSession::actingAdminId() ?? ($admins[0]['id'] ?? 0));
     $adminFilter = $selectedAdminId > 0 ? $selectedAdminId : null;
     $rows = $query->unreconciledPaymentsByAdmin($adminFilter);
-    $history = $query->handovers($adminFilter ? ['admin_id' => $adminFilter] : [], 50);
+    $history = method_exists($query, 'handovers') ? $query->handovers($adminFilter ? ['admin_id' => $adminFilter] : [], 50) : $query->reconciliations($adminFilter ? ['admin_id' => $adminFilter] : [], 50);
+    $offsetCandidates = (new AdminBalanceOffsetService())->candidates($adminFilter);
     $total = array_sum(array_map(fn($row) => (int)$row['amount'], $rows));
     ?>
     <section class="card">
@@ -1559,6 +1572,47 @@ function render_reconciliation(TreasuryQueryService $query, array $admins): void
             <label>Admin <?= admin_select('admin_id', $selectedAdminId, true) ?></label>
             <button class="button" type="submit">Filter</button>
         </form>
+    </section>
+
+    <section class="card">
+        <div class="section-header"><h2>Mutual admin balance offsets</h2><span class="pill"><?= count($offsetCandidates) ?> candidate<?= count($offsetCandidates) === 1 ? '' : 's' ?></span></div>
+        <p class="muted">When the same admin owes GP to treasury and treasury owes GP back to that admin, matching balances can be cleared without moving GP through the official treasury.</p>
+        <?php if (!$offsetCandidates): ?>
+            <p class="empty">No mutual admin balances are available for this filter.</p>
+        <?php else: ?>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Admin</th><th class="right">Owes treasury</th><th class="right">Treasury owes admin</th><th class="right">Offset available</th><th>Request match</th><th></th></tr></thead>
+                    <tbody>
+                    <?php foreach ($offsetCandidates as $candidate): ?>
+                        <tr>
+                            <td><?= h($candidate['display_name'] ?: $candidate['rsn']) ?></td>
+                            <td class="right amount"><?= h(GP::format($candidate['owed_to_treasury'])) ?></td>
+                            <td class="right amount"><?= h(GP::format($candidate['owed_to_admin'])) ?></td>
+                            <td class="right amount"><?= h(GP::format($candidate['offset_amount'])) ?></td>
+                            <td>
+                                <?= (int)$candidate['open_payment_count'] ?> money-in totalling <?= h(GP::format($candidate['open_payment_amount'])) ?><br>
+                                <?= (int)$candidate['open_payout_count'] ?> money-out totalling <?= h(GP::format($candidate['open_payout_amount'])) ?>
+                                <?php if (!$candidate['can_auto_offset'] && $candidate['offset_amount'] > 0): ?><small><?= h($candidate['blocked_reason']) ?></small><?php endif; ?>
+                            </td>
+                            <td class="actions-cell">
+                                <?php if ($candidate['can_auto_offset']): ?>
+                                    <form method="post" class="row-action">
+                                        <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                        <input type="hidden" name="action" value="offset_admin_balance">
+                                        <input type="hidden" name="admin_id" value="<?= (int)$candidate['admin_id'] ?>">
+                                        <button class="button small primary" type="submit">Offset balance</button>
+                                    </form>
+                                <?php else: ?>
+                                    <span class="muted">Not automatic</span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        <?php endif; ?>
     </section>
 
     <section class="card">

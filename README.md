@@ -678,3 +678,22 @@ php bin/repair-admin-payables.php
 ```
 
 The repair does not change any amounts, transaction dates, statuses, or payout records. It only reclassifies resolvable ledger lines from the shared parent payable account to the correct per-admin child account, such as `2000:12 Funds Owed to Admin - Example`.
+
+## Admin balance offsets
+
+If the same admin owes GP to the treasury and the treasury also owes GP to that admin, the two balances can be offset without moving GP through the official treasury.
+
+Example:
+
+- Lodo owes treasury 1.1m from received contributions.
+- Treasury owes Lodo 1.1m from admin-paid payouts.
+
+The Reconciliation page shows a **Mutual admin balance offsets** section. When the amounts and the linked open Money In/Money Out request totals match exactly, the app can post an offset transaction that:
+
+- Debits the per-admin Funds Owed to Admin account.
+- Credits the per-admin Funds Owed by Admin account.
+- Marks the included Money In requests as settled/reconciled.
+- Marks the included Money Out requests as reimbursed.
+- Leaves the Official Treasury account unchanged.
+
+The first implementation only auto-offsets exact matching balances. Partial offsets should be handled with normal handover/reimbursement flows or future manual selection support.

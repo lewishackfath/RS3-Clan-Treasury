@@ -133,6 +133,11 @@ final class TreasuryQueryService
 
 
 
+    public function handovers(array $filters = [], int $limit = 100): array
+    {
+        return $this->reconciliations($filters, $limit);
+    }
+
     public function reconciliations(array $filters = [], int $limit = 100): array
     {
         $where = [];
