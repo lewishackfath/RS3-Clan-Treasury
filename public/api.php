@@ -11,6 +11,7 @@ use Treasury\Services\IdempotencyService;
 use Treasury\Services\PaymentRequestService;
 use Treasury\Services\PayoutRequestService;
 use Treasury\Services\ApiRequestLogService;
+use Treasury\Services\AdminService;
 use Treasury\Support\Env;
 
 function request_json(): array
@@ -154,6 +155,16 @@ try {
             ],
             'scopes' => $context->scopes,
         ]);
+        exit;
+    }
+
+
+    if (($path === '/api/v1/admin-rsns' || $path === '/api/v1/admins/rsns') && $method === 'GET') {
+        $context = ApiAuth::requireContext();
+        if (!$context->can('admins:read') && !$context->can('payments:receive') && !$context->can('payouts:pay')) {
+            throw new RuntimeException('API key does not have required scope: admins:read, payments:receive, or payouts:pay', 403);
+        }
+        Response::json((new AdminService())->assignableRsnsForApi());
         exit;
     }
 

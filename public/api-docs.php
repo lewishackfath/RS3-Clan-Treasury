@@ -309,6 +309,32 @@ GET <?= h($apiBase) ?>/money-out-requests/by-source/{source_type}/{source_id}</c
             </section>
         </div>
     </section>
-</main>
+
+        <section class="card">
+            <h2>Valid admin RSNs</h2>
+            <p>Use this endpoint when an integration needs to populate or validate <code>received_by_admin_rsn</code> or <code>paid_by_admin_rsn</code>.</p>
+            <pre><code>GET /api/v1/admin-rsns</code></pre>
+            <p>Requires one of these scopes: <code>admins:read</code>, <code>payments:receive</code>, or <code>payouts:pay</code>.</p>
+            <pre><code>{
+  "admins": [
+    {
+      "admin_id": 1,
+      "display_name": "Display Name",
+      "primary_rsn": "Main RSN",
+      "rsns": [
+        { "rsn_id": 10, "rsn": "Main RSN", "is_primary": true },
+        { "rsn_id": 11, "rsn": "Alt RSN", "is_primary": false }
+      ]
+    }
+  ],
+  "rsns": [
+    { "rsn": "Main RSN", "admin_id": 1, "display_name": "Display Name", "is_primary": true },
+    { "rsn": "Alt RSN", "admin_id": 1, "display_name": "Display Name", "is_primary": false }
+  ],
+  "accepted_fields": ["received_by_admin_rsn", "paid_by_admin_rsn"]
+}</code></pre>
+        </section>
+
+    </main>
 </body>
 </html>

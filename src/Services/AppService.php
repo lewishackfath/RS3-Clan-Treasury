@@ -19,6 +19,7 @@ final class AppService
         'payouts:create' => 'Create money-out requests',
         'payouts:pay' => 'Mark money-out requests as paid by an admin',
         'payouts:read' => 'Read money-out request status',
+        'admins:read' => 'Read valid treasury admin RSNs for assignment',
         'transactions:read' => 'Read linked transaction details',
         'balances:read' => 'Read treasury balances',
         'reports:read' => 'Read report summaries',

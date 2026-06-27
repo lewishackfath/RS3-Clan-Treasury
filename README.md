@@ -755,3 +755,37 @@ APP_FAVICON_URL=favicon.ico
 The supplied `favicon.ico` is included at `public/favicon.ico` and is used by default.
 
 The UI palette has also been softened to use darker parchment surfaces and lower-contrast highlights to reduce eye strain.
+
+
+## API endpoint: valid admin RSNs
+
+Integrations can fetch the active Treasury user RSNs that are valid for `received_by_admin_rsn` and `paid_by_admin_rsn`.
+
+```http
+GET /api/v1/admin-rsns
+Authorization: Bearer <api_key>
+```
+
+Required scope: one of `admins:read`, `payments:receive`, or `payouts:pay`.
+
+Example response:
+
+```json
+{
+  "admins": [
+    {
+      "admin_id": 1,
+      "display_name": "Display Name",
+      "primary_rsn": "Main RSN",
+      "rsns": [
+        { "rsn_id": 10, "rsn": "Main RSN", "is_primary": true },
+        { "rsn_id": 11, "rsn": "Alt RSN", "is_primary": false }
+      ]
+    }
+  ],
+  "rsns": [
+    { "rsn": "Main RSN", "admin_id": 1, "display_name": "Display Name", "is_primary": true }
+  ],
+  "accepted_fields": ["received_by_admin_rsn", "paid_by_admin_rsn"]
+}
+```

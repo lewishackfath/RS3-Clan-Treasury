@@ -450,6 +450,96 @@ final class AdminService
         return $row;
     }
 
+
+    /**
+     * Returns active treasury users and RSNs that API integrations may use for
+     * received_by_admin_rsn and paid_by_admin_rsn fields.
+     *
+     * @return array{admins:array<int,array>,rsns:array<int,array>,accepted_fields:array<int,string>}
+     */
+    public function assignableRsnsForApi(): array
+    {
+        $pdo = Database::pdo();
+        $admins = $pdo->query(
+            'SELECT id, display_name, rsn AS primary_rsn
+             FROM treasury_admins
+             WHERE is_active = 1
+             ORDER BY display_name ASC, rsn ASC, id ASC'
+        )->fetchAll(PDO::FETCH_ASSOC);
+
+        if (!$admins) {
+            return [
+                'admins' => [],
+                'rsns' => [],
+                'accepted_fields' => ['received_by_admin_rsn', 'paid_by_admin_rsn'],
+            ];
+        }
+
+        $adminIds = array_map(static fn(array $row): int => (int)$row['id'], $admins);
+        $placeholders = implode(',', array_fill(0, count($adminIds), '?'));
+        $stmt = $pdo->prepare(
+            'SELECT ar.id AS rsn_id, ar.admin_id, ar.rsn, ar.is_primary
+             FROM treasury_admin_rsns ar
+             INNER JOIN treasury_admins ta ON ta.id = ar.admin_id
+             WHERE ar.admin_id IN (' . $placeholders . ')
+               AND ar.is_active = 1
+               AND ta.is_active = 1
+             ORDER BY ta.display_name ASC, ar.is_primary DESC, ar.rsn ASC, ar.id ASC'
+        );
+        $stmt->execute($adminIds);
+        $rsnRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $byAdmin = [];
+        foreach ($rsnRows as $row) {
+            $adminId = (int)$row['admin_id'];
+            $byAdmin[$adminId][] = [
+                'rsn_id' => (int)$row['rsn_id'],
+                'rsn' => (string)$row['rsn'],
+                'is_primary' => (int)$row['is_primary'] === 1,
+            ];
+        }
+
+        $apiAdmins = [];
+        $flatRsns = [];
+        foreach ($admins as $admin) {
+            $adminId = (int)$admin['id'];
+            $displayName = (string)($admin['display_name'] ?: $admin['primary_rsn']);
+            $primaryRsn = (string)$admin['primary_rsn'];
+            $rsns = $byAdmin[$adminId] ?? [];
+
+            // Safety fallback for older installs before multi-RSN backfill has run.
+            if (!$rsns && $primaryRsn !== '') {
+                $rsns[] = [
+                    'rsn_id' => null,
+                    'rsn' => $primaryRsn,
+                    'is_primary' => true,
+                ];
+            }
+
+            $apiAdmins[] = [
+                'admin_id' => $adminId,
+                'display_name' => $displayName,
+                'primary_rsn' => $primaryRsn,
+                'rsns' => $rsns,
+            ];
+
+            foreach ($rsns as $rsn) {
+                $flatRsns[] = [
+                    'rsn' => (string)$rsn['rsn'],
+                    'admin_id' => $adminId,
+                    'display_name' => $displayName,
+                    'is_primary' => (bool)$rsn['is_primary'],
+                ];
+            }
+        }
+
+        return [
+            'admins' => $apiAdmins,
+            'rsns' => $flatRsns,
+            'accepted_fields' => ['received_by_admin_rsn', 'paid_by_admin_rsn'],
+        ];
+    }
+
     private function findAdminRsn(int $adminId, string $rsn): ?array
     {
         $stmt = Database::pdo()->prepare('SELECT * FROM treasury_admin_rsns WHERE admin_id = :admin_id AND LOWER(rsn) = LOWER(:rsn) LIMIT 1');
