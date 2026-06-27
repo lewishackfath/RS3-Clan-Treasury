@@ -141,7 +141,10 @@ function nav_items(): array
         'chart_accounts' => 'Chart of Accounts',
         'users' => 'Users',
         'integrations' => 'Integrations',
+        'integration_new' => 'New integration',
+        'integration_edit' => 'Edit integration',
         'api_keys' => 'API Keys',
+        'profile' => 'Profile',
         'settings' => 'Settings',
     ];
 }
@@ -168,6 +171,7 @@ function nav_categories(): array
             'api_keys' => 'API Keys',
         ],
         'System' => [
+            'profile' => 'Profile',
             'settings' => 'Settings',
         ],
     ];
@@ -184,6 +188,9 @@ function page_title(string $page): string
         'new_admin_reimbursement' => 'New admin reimbursement',
         'chart_accounts' => 'Chart of Accounts',
         'users' => 'Users',
+        'user_new' => 'New user',
+        'user_edit' => 'Edit user',
+        'profile' => 'Profile',
         'setup_rsn' => 'Set your RSN',
         'payment_detail' => 'Money-in detail',
         'payout_detail' => 'Money-out detail',
@@ -191,7 +198,11 @@ function page_title(string $page): string
         'transaction_detail' => 'Transaction detail',
         'reports' => 'Reports',
         'integrations' => 'Integrations',
+        'integration_new' => 'New integration',
+        'integration_edit' => 'Edit integration',
         'api_keys' => 'API Keys',
+        'api_key_new' => 'New API key',
+        'api_key_edit' => 'Edit API key',
         'source_apps' => 'Integrations',
     ][$page] ?? (nav_items()[$page] ?? ucwords(str_replace('_', ' ', $page)));
 }
@@ -206,11 +217,18 @@ function page_description(string $page): string
         'transactions' => 'Review posted ledger entries and reverse mistakes safely.',
         'settings' => 'Review Discord login status and app configuration.',
         'integrations' => 'Manage source applications/integrations that can connect to Treasury.',
+        'integration_new' => 'Create a new source application/integration.',
+        'integration_edit' => 'Edit integration details and source slug.',
         'api_keys' => 'Manage API keys, scopes, expiry dates, and key regeneration for integrations.',
+        'api_key_new' => 'Generate a new API key for an integration.',
+        'api_key_edit' => 'Edit API key permissions, expiry, and regeneration.',
         'source_apps' => 'Manage source applications/integrations that can connect to Treasury.',
         'reports' => 'Review revenue, expenses, official treasury movement, money owed by admins, and account activity.',
         'chart_accounts' => 'Manage revenue and expense ledger accounts used to categorise GP transactions.',
-        'users' => 'Manage treasury users, Discord links, active status, and RSN changes.',
+        'users' => 'Manage treasury users, Discord links, active status, and RSNs.',
+        'user_new' => 'Create a treasury user and assign their primary RSN.',
+        'user_edit' => 'Update a treasury user and manage all of their RSNs.',
+        'profile' => 'Manage your own treasury profile, display name, and RSNs.',
         'setup_rsn' => 'Link your Discord login to a treasury user before continuing.',
         'new_payment' => 'Create an expected incoming GP payment for entry fees, contributions, or other money-in workflows.',
         'new_payout' => 'Create an outgoing GP request for prizes, expenses, or reimbursement workflows.',
@@ -299,6 +317,22 @@ function require_acting_admin(): int
         throw new RuntimeException('Select an acting treasury admin before posting treasury actions.');
     }
     return $adminId;
+}
+
+function current_treasury_user(): ?array
+{
+    $service = new AdminService();
+    $adminId = AdminSession::actingAdminId();
+    if ($adminId) {
+        try {
+            return $service->get($adminId);
+        } catch (Throwable) {
+            // Fall through to Discord match.
+        }
+    }
+
+    $discordUserId = AdminSession::discordUserId();
+    return $discordUserId ? $service->findByDiscordUserId($discordUserId) : null;
 }
 
 function discord_profile_needs_rsn_setup(): bool
@@ -462,12 +496,111 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 if (AdminSession::actingAdminLockEnabled() && !AdminSession::actingAdminId()) {
                     Flash::add('warning', 'Acting admin is locked to your Discord login. Link your Discord user ID to your treasury user record to post treasury actions.');
                 }
-                redirect_to('users');
+                redirect_to('user_edit', ['id' => (int)$admin['id']]);
 
             case 'update_admin':
-                (new AdminService())->update((int)($_POST['admin_id'] ?? 0), $_POST, require_acting_admin());
+                $adminId = (int)($_POST['admin_id'] ?? 0);
+                (new AdminService())->update($adminId, $_POST, require_acting_admin());
                 Flash::add('success', 'Treasury user updated.');
-                redirect_to('users');
+                redirect_to('user_edit', ['id' => $adminId]);
+
+            case 'update_profile':
+                $admin = current_treasury_user();
+                if (!$admin) {
+                    throw new RuntimeException('Your Discord login is not linked to a treasury user.');
+                }
+                (new AdminService())->update((int)$admin['id'], $_POST, (int)$admin['id']);
+                Flash::add('success', 'Profile updated.');
+                redirect_to('profile');
+
+            case 'add_admin_rsn':
+                $adminId = (int)($_POST['admin_id'] ?? 0);
+                (new AdminService())->addRsn($adminId, (string)($_POST['rsn'] ?? ''), !empty($_POST['is_primary']), require_acting_admin());
+                Flash::add('success', 'RSN added.');
+                redirect_to('user_edit', ['id' => $adminId]);
+
+            case 'update_admin_rsn':
+                $row = (new AdminService())->updateRsn((int)($_POST['rsn_id'] ?? 0), (string)($_POST['rsn'] ?? ''), !empty($_POST['is_primary']), require_acting_admin());
+                Flash::add('success', 'RSN updated.');
+                redirect_to('user_edit', ['id' => (int)$row['admin_id']]);
+
+            case 'set_primary_admin_rsn':
+                $service = new AdminService();
+                $row = $service->getAdminRsn((int)($_POST['rsn_id'] ?? 0));
+                $service->setPrimaryRsn((int)$row['id'], require_acting_admin());
+                Flash::add('success', 'Primary RSN updated.');
+                redirect_to('user_edit', ['id' => (int)$row['admin_id']]);
+
+            case 'archive_admin_rsn':
+                $service = new AdminService();
+                $row = $service->getAdminRsn((int)($_POST['rsn_id'] ?? 0));
+                $service->setRsnActive((int)$row['id'], false, require_acting_admin());
+                Flash::add('success', 'RSN archived.');
+                redirect_to('user_edit', ['id' => (int)$row['admin_id']]);
+
+            case 'restore_admin_rsn':
+                $service = new AdminService();
+                $row = $service->getAdminRsn((int)($_POST['rsn_id'] ?? 0));
+                $service->setRsnActive((int)$row['id'], true, require_acting_admin());
+                Flash::add('success', 'RSN restored.');
+                redirect_to('user_edit', ['id' => (int)$row['admin_id']]);
+
+            case 'delete_admin_rsn':
+                $service = new AdminService();
+                $row = $service->getAdminRsn((int)($_POST['rsn_id'] ?? 0));
+                $adminId = (int)$row['admin_id'];
+                $service->deleteRsn((int)$row['id'], require_acting_admin());
+                Flash::add('success', 'RSN deleted.');
+                redirect_to('user_edit', ['id' => $adminId]);
+
+            case 'profile_add_rsn':
+                $admin = current_treasury_user();
+                if (!$admin) {
+                    throw new RuntimeException('Your Discord login is not linked to a treasury user.');
+                }
+                (new AdminService())->addRsn((int)$admin['id'], (string)($_POST['rsn'] ?? ''), !empty($_POST['is_primary']), (int)$admin['id']);
+                Flash::add('success', 'RSN added to your profile.');
+                redirect_to('profile');
+
+            case 'profile_update_rsn':
+                $admin = current_treasury_user();
+                if (!$admin) {
+                    throw new RuntimeException('Your Discord login is not linked to a treasury user.');
+                }
+                $row = (new AdminService())->getAdminRsn((int)($_POST['rsn_id'] ?? 0));
+                if ((int)$row['admin_id'] !== (int)$admin['id']) {
+                    throw new RuntimeException('You can only edit your own RSNs from Profile.');
+                }
+                (new AdminService())->updateRsn((int)$row['id'], (string)($_POST['rsn'] ?? ''), !empty($_POST['is_primary']), (int)$admin['id']);
+                Flash::add('success', 'RSN updated.');
+                redirect_to('profile');
+
+            case 'profile_set_primary_rsn':
+                $admin = current_treasury_user();
+                if (!$admin) {
+                    throw new RuntimeException('Your Discord login is not linked to a treasury user.');
+                }
+                $row = (new AdminService())->getAdminRsn((int)($_POST['rsn_id'] ?? 0));
+                if ((int)$row['admin_id'] !== (int)$admin['id']) {
+                    throw new RuntimeException('You can only edit your own RSNs from Profile.');
+                }
+                (new AdminService())->setPrimaryRsn((int)$row['id'], (int)$admin['id']);
+                Flash::add('success', 'Primary RSN updated.');
+                redirect_to('profile');
+
+            case 'profile_archive_rsn':
+                $admin = current_treasury_user();
+                if (!$admin) {
+                    throw new RuntimeException('Your Discord login is not linked to a treasury user.');
+                }
+                $row = (new AdminService())->getAdminRsn((int)($_POST['rsn_id'] ?? 0));
+                if ((int)$row['admin_id'] !== (int)$admin['id']) {
+                    throw new RuntimeException('You can only edit your own RSNs from Profile.');
+                }
+                (new AdminService())->setRsnActive((int)$row['id'], false, (int)$admin['id']);
+                Flash::add('success', 'RSN archived.');
+                redirect_to('profile');
+
 
             case 'archive_admin':
                 (new AdminService())->setActive((int)($_POST['admin_id'] ?? 0), false, require_acting_admin());
@@ -485,14 +618,15 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 redirect_to('users');
 
             case 'create_app':
-                (new AppService())->create($_POST);
+                $app = (new AppService())->create($_POST);
                 Flash::add('success', 'Integration created.');
-                redirect_to('integrations');
+                redirect_to('integration_edit', ['id' => (int)$app['id']]);
 
             case 'update_app':
-                (new AppService())->update((int)($_POST['app_id'] ?? 0), $_POST, require_acting_admin());
+                $appId = (int)($_POST['app_id'] ?? 0);
+                (new AppService())->update($appId, $_POST, require_acting_admin());
                 Flash::add('success', 'Integration updated.');
-                redirect_to('integrations');
+                redirect_to('integration_edit', ['id' => $appId]);
 
             case 'archive_app':
                 (new AppService())->setActive((int)($_POST['app_id'] ?? 0), false, require_acting_admin());
@@ -515,14 +649,16 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 redirect_to('api_keys');
 
             case 'update_api_key':
-                (new AppService())->updateApiKey((int)($_POST['api_key_id'] ?? 0), $_POST, require_acting_admin());
+                $keyId = (int)($_POST['api_key_id'] ?? 0);
+                (new AppService())->updateApiKey($keyId, $_POST, require_acting_admin());
                 Flash::add('success', 'API key permissions updated.');
-                redirect_to('api_keys');
+                redirect_to('api_key_edit', ['id' => $keyId]);
 
             case 'regenerate_api_key':
-                $regeneratedKey = (new AppService())->regenerateApiKey((int)($_POST['api_key_id'] ?? 0), require_acting_admin());
+                $keyId = (int)($_POST['api_key_id'] ?? 0);
+                $regeneratedKey = (new AppService())->regenerateApiKey($keyId, require_acting_admin());
                 Flash::add('success', 'API key regenerated. Copy it now; it will not be shown again: ' . $regeneratedKey['raw_key']);
-                redirect_to('api_keys');
+                redirect_to('api_key_edit', ['id' => $keyId]);
 
             case 'revoke_api_key':
                 (new AppService())->setApiKeyActive((int)($_POST['api_key_id'] ?? 0), false, require_acting_admin());
@@ -915,10 +1051,24 @@ $expenseAccounts = $loggedIn ? $accountService->postingAccounts('expense') : [];
         <?php render_chart_accounts((new AccountService())->all(true), $apps); ?>
     <?php elseif ($page === 'users'): ?>
         <?php render_users($allAdmins); ?>
+    <?php elseif ($page === 'user_new'): ?>
+        <?php render_user_form(null); ?>
+    <?php elseif ($page === 'user_edit'): ?>
+        <?php render_user_form((int)($_GET['id'] ?? 0)); ?>
+    <?php elseif ($page === 'profile'): ?>
+        <?php render_profile(); ?>
     <?php elseif ($page === 'integrations'): ?>
         <?php render_integrations($allSourceApps); ?>
+    <?php elseif ($page === 'integration_new'): ?>
+        <?php render_integration_form(null); ?>
+    <?php elseif ($page === 'integration_edit'): ?>
+        <?php render_integration_form((int)($_GET['id'] ?? 0)); ?>
     <?php elseif ($page === 'api_keys'): ?>
         <?php render_api_keys($allSourceApps, $apiKeys); ?>
+    <?php elseif ($page === 'api_key_new'): ?>
+        <?php render_api_key_form(null, $allSourceApps); ?>
+    <?php elseif ($page === 'api_key_edit'): ?>
+        <?php render_api_key_form((int)($_GET['id'] ?? 0), $allSourceApps); ?>
     <?php elseif ($page === 'settings'): ?>
         <?php render_settings($apps); ?>
     <?php else: ?>
@@ -2044,47 +2194,33 @@ function render_chart_accounts(array $accounts, array $apps): void
     <?php
 }
 
+function render_profile(): void
+{
+    $admin = current_treasury_user();
+    if (!$admin) {
+        render_not_found('Your Discord login is not linked to a treasury user yet.', 'dashboard');
+        return;
+    }
+
+    render_user_profile_form($admin, true);
+}
+
 function render_users(array $admins): void
 {
     $adminService = new AdminService();
-    $history = $adminService->rsnHistoryForAdmins(array_map(fn(array $admin): int => (int)$admin['id'], $admins));
+    $rsns = $adminService->rsnsForAdmins(array_map(fn(array $admin): int => (int)$admin['id'], $admins));
     ?>
-    <section class="grid two">
-        <div class="card">
-            <div class="section-header">
-                <div>
-                    <h2>Create treasury user</h2>
-                    <p class="muted">Treasury users are admins who can hold GP, receive payments, pay expenses, or post ledger actions.</p>
-                </div>
-            </div>
-            <form method="post" class="grid-form">
-                <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                <input type="hidden" name="action" value="create_admin">
-                <label>Display name <input name="display_name" placeholder="First Name"></label>
-                <label>Current RSN <input name="rsn" required placeholder="RuneScape name"></label>
-                <label class="wide">Discord user ID <input name="discord_user_id" placeholder="Required for Discord auto-link"></label>
-                <div class="form-actions"><button class="button primary" type="submit">Create user</button></div>
-            </form>
-        </div>
-
-        <div class="notice-card">
-            <h2>RSN changes</h2>
-            <p>When a user changes RSN, edit their current RSN here. The app keeps an RSN history so old records remain understandable while future transactions use the current RSN.</p>
-            <p class="muted">Users with no treasury history can be deleted. Users with activity should be archived instead, preserving the audit trail.</p>
-        </div>
-    </section>
-
     <section class="card">
         <div class="section-header">
             <div>
                 <h2>Treasury users</h2>
-                <p class="muted">Manage active users, Discord links, and RSN changes.</p>
+                <p class="muted">Manage treasury users, Discord links, active status, and multiple RSNs.</p>
             </div>
-            <span class="pill"><?= count($admins) ?> users</span>
+            <a class="button primary" href="<?= h(url_for('user_new')) ?>">New user</a>
         </div>
         <div class="table-wrap">
             <table>
-                <thead><tr><th>User</th><th>Current RSN</th><th>Discord user ID</th><th>Usage</th><th>Status</th><th>Actions</th></tr></thead>
+                <thead><tr><th>User</th><th>RSNs</th><th>Discord user ID</th><th>Usage</th><th>Status</th><th>Actions</th></tr></thead>
                 <tbody>
                 <?php foreach ($admins as $admin): ?>
                     <?php
@@ -2095,10 +2231,17 @@ function render_users(array $admins): void
                             + (int)($admin['received_payment_count'] ?? 0)
                             + (int)($admin['paid_payout_count'] ?? 0);
                         $isActive = (int)$admin['is_active'] === 1;
+                        $userRsns = $rsns[$adminId] ?? [];
                     ?>
                     <tr>
                         <td><strong><?= h($admin['display_name'] ?: $admin['rsn']) ?></strong><small>ID <?= $adminId ?></small></td>
-                        <td><strong><?= h($admin['rsn']) ?></strong></td>
+                        <td>
+                            <?php foreach ($userRsns as $row): ?>
+                                <?php if ((int)$row['is_active'] !== 1) { continue; } ?>
+                                <span class="pill rsn-pill"><?= h($row['rsn']) ?><?= (int)$row['is_primary'] === 1 ? ' · Primary' : '' ?></span>
+                            <?php endforeach; ?>
+                            <?php if (!$userRsns): ?><span class="muted"><?= h($admin['rsn']) ?></span><?php endif; ?>
+                        </td>
                         <td><?= $admin['discord_user_id'] ? '<code>' . h($admin['discord_user_id']) . '</code>' : '<span class="muted">Not linked</span>' ?></td>
                         <td>
                             <?= $usageTotal ?> references
@@ -2106,35 +2249,7 @@ function render_users(array $admins): void
                         </td>
                         <td><?= $isActive ? badge('active') : badge('archived') ?></td>
                         <td class="actions-cell">
-                            <?php if ($isActive): ?>
-                                <details class="inline-edit user-edit">
-                                    <summary class="button small">Edit</summary>
-                                    <form method="post" class="stacked-form compact account-edit-form">
-                                        <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                                        <input type="hidden" name="action" value="update_admin">
-                                        <input type="hidden" name="admin_id" value="<?= $adminId ?>">
-                                        <label>Display name <input name="display_name" value="<?= h($admin['display_name'] ?? '') ?>"></label>
-                                        <label>Current RSN <input name="rsn" value="<?= h($admin['rsn']) ?>" required></label>
-                                        <label>Discord user ID <input name="discord_user_id" value="<?= h($admin['discord_user_id'] ?? '') ?>"></label>
-                                        <button class="button small primary" type="submit">Save user</button>
-                                    </form>
-                                </details>
-                            <?php endif; ?>
-
-                            <details class="inline-edit user-history">
-                                <summary class="button small">RSN history</summary>
-                                <div class="history-list">
-                                    <?php foreach (($history[$adminId] ?? []) as $row): ?>
-                                        <div class="history-row">
-                                            <strong><?= h($row['rsn']) ?></strong>
-                                            <?= ((int)$row['is_current'] === 1) ? badge('current') : '' ?>
-                                            <small><?= h(local_datetime($row['effective_from'])) ?><?= $row['effective_to'] ? ' → ' . h(local_datetime($row['effective_to'])) : '' ?></small>
-                                        </div>
-                                    <?php endforeach; ?>
-                                    <?php if (empty($history[$adminId])): ?><p class="muted">No RSN history recorded yet.</p><?php endif; ?>
-                                </div>
-                            </details>
-
+                            <a class="button small" href="<?= h(url_for('user_edit', ['id' => $adminId])) ?>">Edit</a>
                             <?php if (!$isActive): ?>
                                 <form method="post" class="row-action">
                                     <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
@@ -2143,7 +2258,6 @@ function render_users(array $admins): void
                                     <button class="button small primary" type="submit">Restore</button>
                                 </form>
                             <?php endif; ?>
-
                             <?php if ($usageTotal === 0): ?>
                                 <form method="post" class="row-action" onsubmit="return confirm('Delete this unused treasury user? This cannot be undone.');">
                                     <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
@@ -2165,6 +2279,158 @@ function render_users(array $admins): void
                 <?php if (!$admins): ?><tr><td colspan="6" class="empty">No treasury users have been created yet.</td></tr><?php endif; ?>
                 </tbody>
             </table>
+        </div>
+    </section>
+    <?php
+}
+
+function render_user_form(?int $adminId): void
+{
+    $adminService = new AdminService();
+    if ($adminId === null || $adminId <= 0) {
+        ?>
+        <section class="card">
+            <div class="section-header">
+                <div>
+                    <h2>New treasury user</h2>
+                    <p class="muted">Create a treasury user and assign their primary RuneScape name.</p>
+                </div>
+                <a class="button" href="<?= h(url_for('users')) ?>">Back to users</a>
+            </div>
+            <form method="post" class="grid-form">
+                <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                <input type="hidden" name="action" value="create_admin">
+                <label>Display name <input name="display_name" placeholder="First Name"></label>
+                <label>Primary RSN <input name="primary_rsn" required placeholder="RuneScape name"></label>
+                <label class="wide">Discord user ID <input name="discord_user_id" placeholder="Required for Discord auto-link"></label>
+                <div class="form-actions"><button class="button primary" type="submit">Create user</button></div>
+            </form>
+        </section>
+        <?php
+        return;
+    }
+
+    try {
+        $admin = $adminService->get($adminId);
+    } catch (Throwable $e) {
+        render_not_found($e->getMessage(), 'users');
+        return;
+    }
+    render_user_profile_form($admin, false);
+}
+
+function render_user_profile_form(array $admin, bool $selfProfile): void
+{
+    $adminService = new AdminService();
+    $adminId = (int)$admin['id'];
+    $rsns = $adminService->adminRsns($adminId, true);
+    $history = $adminService->rsnHistory($adminId);
+    $prefix = $selfProfile ? 'profile_' : '';
+    ?>
+    <section class="grid two">
+        <div class="card">
+            <div class="section-header">
+                <div>
+                    <h2><?= $selfProfile ? 'Your profile' : 'Edit treasury user' ?></h2>
+                    <p class="muted">Update display details and Discord linkage. RSNs are managed separately below.</p>
+                </div>
+                <?php if (!$selfProfile): ?><a class="button" href="<?= h(url_for('users')) ?>">Back to users</a><?php endif; ?>
+            </div>
+            <form method="post" class="grid-form">
+                <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                <input type="hidden" name="action" value="<?= $selfProfile ? 'update_profile' : 'update_admin' ?>">
+                <?php if (!$selfProfile): ?><input type="hidden" name="admin_id" value="<?= $adminId ?>"><?php endif; ?>
+                <label>Display name <input name="display_name" value="<?= h($admin['display_name'] ?? '') ?>" placeholder="First Name"></label>
+                <label>Primary RSN <input value="<?= h($admin['rsn']) ?>" disabled><small>Set the primary RSN from the RSN list below.</small></label>
+                <label class="wide">Discord user ID <input name="discord_user_id" value="<?= h($admin['discord_user_id'] ?? '') ?>" <?= $selfProfile ? 'readonly' : '' ?>></label>
+                <div class="form-actions"><button class="button primary" type="submit">Save</button></div>
+            </form>
+        </div>
+        <div class="notice-card">
+            <h2>Multiple RSNs</h2>
+            <p>Assign every RuneScape name this admin may use. API calls can now identify an admin by any active RSN.</p>
+            <p class="muted">The primary RSN is used for display and account naming. Old primary RSNs remain in the RSN history for audit clarity.</p>
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="section-header"><div><h2>RSNs</h2><p class="muted">Add, edit, archive, or set the primary RSN.</p></div></div>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>RSN</th><th>Status</th><th>Primary</th><th>Actions</th></tr></thead>
+                <tbody>
+                <?php foreach ($rsns as $row): ?>
+                    <?php $rsnId = (int)$row['id']; $isPrimary = (int)$row['is_primary'] === 1; $isActive = (int)$row['is_active'] === 1; ?>
+                    <tr>
+                        <td>
+                            <form method="post" class="inline-form compact-inline">
+                                <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                <input type="hidden" name="action" value="<?= $selfProfile ? 'profile_update_rsn' : 'update_admin_rsn' ?>">
+                                <input type="hidden" name="rsn_id" value="<?= $rsnId ?>">
+                                <label class="sr-only">RSN</label>
+                                <input name="rsn" value="<?= h($row['rsn']) ?>" required>
+                                <label class="checkbox-inline"><input type="checkbox" name="is_primary" value="1" <?= $isPrimary ? 'checked' : '' ?>> Primary</label>
+                                <button class="button small primary" type="submit">Save</button>
+                            </form>
+                        </td>
+                        <td><?= $isActive ? badge('active') : badge('archived') ?></td>
+                        <td><?= $isPrimary ? badge('current') : '<span class="muted">No</span>' ?></td>
+                        <td class="actions-cell">
+                            <?php if (!$isPrimary && $isActive): ?>
+                                <form method="post" class="row-action">
+                                    <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                    <input type="hidden" name="action" value="<?= $selfProfile ? 'profile_set_primary_rsn' : 'set_primary_admin_rsn' ?>">
+                                    <input type="hidden" name="rsn_id" value="<?= $rsnId ?>">
+                                    <button class="button small" type="submit">Set primary</button>
+                                </form>
+                            <?php endif; ?>
+                            <?php if (!$isPrimary && $isActive): ?>
+                                <form method="post" class="row-action" onsubmit="return confirm('Archive this RSN?');">
+                                    <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                    <input type="hidden" name="action" value="<?= $selfProfile ? 'profile_archive_rsn' : 'archive_admin_rsn' ?>">
+                                    <input type="hidden" name="rsn_id" value="<?= $rsnId ?>">
+                                    <button class="button small" type="submit">Archive</button>
+                                </form>
+                            <?php elseif (!$isPrimary && !$selfProfile): ?>
+                                <form method="post" class="row-action">
+                                    <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                    <input type="hidden" name="action" value="restore_admin_rsn">
+                                    <input type="hidden" name="rsn_id" value="<?= $rsnId ?>">
+                                    <button class="button small primary" type="submit">Restore</button>
+                                </form>
+                            <?php endif; ?>
+                            <?php if (!$isPrimary && !$selfProfile): ?>
+                                <form method="post" class="row-action" onsubmit="return confirm('Delete this RSN record?');">
+                                    <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                                    <input type="hidden" name="action" value="delete_admin_rsn">
+                                    <input type="hidden" name="rsn_id" value="<?= $rsnId ?>">
+                                    <button class="button small danger" type="submit">Delete</button>
+                                </form>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if (!$rsns): ?><tr><td colspan="4" class="empty">No RSNs recorded.</td></tr><?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+        <form method="post" class="grid-form full-width">
+            <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+            <input type="hidden" name="action" value="<?= $selfProfile ? 'profile_add_rsn' : 'add_admin_rsn' ?>">
+            <?php if (!$selfProfile): ?><input type="hidden" name="admin_id" value="<?= $adminId ?>"><?php endif; ?>
+            <label>New RSN <input name="rsn" required placeholder="RuneScape name"></label>
+            <label class="checkbox-card"><input type="checkbox" name="is_primary" value="1"> Make primary</label>
+            <div class="form-actions"><button class="button primary" type="submit">Add RSN</button></div>
+        </form>
+    </section>
+
+    <section class="card">
+        <div class="section-header"><div><h2>Primary RSN history</h2><p class="muted">This records previous primary RSNs for audit context.</p></div></div>
+        <div class="history-list">
+            <?php foreach ($history as $row): ?>
+                <div class="history-row"><strong><?= h($row['rsn']) ?></strong> <?= ((int)$row['is_current'] === 1) ? badge('current') : '' ?><small><?= h(local_datetime($row['effective_from'])) ?><?= $row['effective_to'] ? ' → ' . h(local_datetime($row['effective_to'])) : '' ?></small></div>
+            <?php endforeach; ?>
+            <?php if (!$history): ?><p class="muted">No RSN history recorded yet.</p><?php endif; ?>
         </div>
     </section>
     <?php
@@ -2408,27 +2674,13 @@ function render_integrations(array $apps): void
     <section class="card">
         <div class="section-header">
             <div>
-                <h2>Create integration</h2>
-                <p class="muted">Create source apps/integrations that can raise Treasury requests through the API. The slug is generated automatically from the name.</p>
-            </div>
-            <a class="button" href="api-docs.php" target="_blank" rel="noopener">View API docs</a>
-        </div>
-        <form method="post" class="grid-form">
-            <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-            <input type="hidden" name="action" value="create_app">
-            <label>Name <input name="name" required placeholder="Runes of Power"></label>
-            <label class="wide">Description <input name="description" placeholder="Optional integration notes"></label>
-            <div class="form-actions"><button class="button primary" type="submit">Create integration</button></div>
-        </form>
-    </section>
-
-    <section class="card">
-        <div class="section-header">
-            <div>
                 <h2>Integrations</h2>
-                <p class="muted">Manage source apps. Integrations with history should be archived rather than deleted.</p>
+                <p class="muted">Manage source apps/integrations that can raise Treasury requests through the API.</p>
             </div>
-            <span class="pill"><?= count($apps) ?> integration<?= count($apps) === 1 ? '' : 's' ?></span>
+            <div class="actions-cell">
+                <a class="button primary" href="<?= h(url_for('integration_new')) ?>">New integration</a>
+                <a class="button" href="api-docs.php" target="_blank" rel="noopener">API docs</a>
+            </div>
         </div>
         <div class="table-wrap">
             <table>
@@ -2444,51 +2696,22 @@ function render_integrations(array $apps): void
                         <td><strong><?= h($app['name']) ?></strong><?= $isManual ? '<small>Locked internal source</small>' : '' ?></td>
                         <td><code><?= h($app['slug']) ?></code></td>
                         <td><?= h($app['description'] ?: '—') ?></td>
-                        <td>
-                            <?= (int)$app['active_api_key_count'] ?> active keys
-                            <small><?= (int)$app['payment_request_count'] ?> money-in · <?= (int)$app['payout_request_count'] ?> money-out · <?= (int)$app['transaction_count'] ?> ledger · <?= (int)$app['account_count'] ?> accounts</small>
-                        </td>
+                        <td><?= (int)$app['active_api_key_count'] ?> active keys<small><?= (int)$app['payment_request_count'] ?> money-in · <?= (int)$app['payout_request_count'] ?> money-out · <?= (int)$app['transaction_count'] ?> ledger · <?= (int)$app['account_count'] ?> accounts</small></td>
                         <td><?= $isActive ? badge('active') : badge('archived') ?></td>
                         <td class="actions-cell">
                             <?php if ($isManual): ?>
                                 <span class="muted">System</span>
                             <?php else: ?>
-                                <details class="inline-edit">
-                                    <summary class="button small">Edit</summary>
-                                    <form method="post" class="stacked-form compact account-edit-form">
-                                        <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                                        <input type="hidden" name="action" value="update_app">
-                                        <input type="hidden" name="app_id" value="<?= (int)$app['id'] ?>">
-                                        <label>Name <input name="name" value="<?= h($app['name']) ?>" required></label>
-                                        <label>Slug <input name="slug" value="<?= h($app['slug']) ?>" required><small>Changing this may affect integrations that look up records by source app slug.</small></label>
-                                        <label>Description <input name="description" value="<?= h($app['description'] ?? '') ?>"></label>
-                                        <button class="button small primary" type="submit">Save integration</button>
-                                    </form>
-                                </details>
+                                <a class="button small" href="<?= h(url_for('integration_edit', ['id' => (int)$app['id']])) ?>">Edit</a>
+                                <a class="button small" href="<?= h(url_for('api_keys', ['app_id' => (int)$app['id']])) ?>">API keys</a>
                                 <?php if (!$isActive): ?>
-                                    <form method="post" class="row-action">
-                                        <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                                        <input type="hidden" name="action" value="restore_app">
-                                        <input type="hidden" name="app_id" value="<?= (int)$app['id'] ?>">
-                                        <button class="button small primary" type="submit">Restore</button>
-                                    </form>
+                                    <form method="post" class="row-action"><input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>"><input type="hidden" name="action" value="restore_app"><input type="hidden" name="app_id" value="<?= (int)$app['id'] ?>"><button class="button small primary" type="submit">Restore</button></form>
                                 <?php endif; ?>
                                 <?php if ($usageTotal === 0): ?>
-                                    <form method="post" class="row-action" onsubmit="return confirm('Delete this unused integration? This cannot be undone.');">
-                                        <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                                        <input type="hidden" name="action" value="delete_app">
-                                        <input type="hidden" name="app_id" value="<?= (int)$app['id'] ?>">
-                                        <button class="button small danger" type="submit">Delete</button>
-                                    </form>
+                                    <form method="post" class="row-action" onsubmit="return confirm('Delete this unused integration? This cannot be undone.');"><input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>"><input type="hidden" name="action" value="delete_app"><input type="hidden" name="app_id" value="<?= (int)$app['id'] ?>"><button class="button small danger" type="submit">Delete</button></form>
                                 <?php elseif ($isActive): ?>
-                                    <form method="post" class="row-action" onsubmit="return confirm('Archive this integration? Existing history and keys will remain.');">
-                                        <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                                        <input type="hidden" name="action" value="archive_app">
-                                        <input type="hidden" name="app_id" value="<?= (int)$app['id'] ?>">
-                                        <button class="button small" type="submit">Archive</button>
-                                    </form>
+                                    <form method="post" class="row-action" onsubmit="return confirm('Archive this integration? Existing history and keys will remain.');"><input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>"><input type="hidden" name="action" value="archive_app"><input type="hidden" name="app_id" value="<?= (int)$app['id'] ?>"><button class="button small" type="submit">Archive</button></form>
                                 <?php endif; ?>
-                                <a class="button small" href="<?= h(url_for('api_keys', ['app_id' => (int)$app['id']])) ?>">API keys</a>
                             <?php endif; ?>
                         </td>
                     </tr>
@@ -2497,6 +2720,46 @@ function render_integrations(array $apps): void
                 </tbody>
             </table>
         </div>
+    </section>
+    <?php
+}
+
+function render_integration_form(?int $appId): void
+{
+    $service = new AppService();
+    $app = null;
+    if ($appId !== null && $appId > 0) {
+        try {
+            $app = $service->get($appId);
+        } catch (Throwable $e) {
+            render_not_found($e->getMessage(), 'integrations');
+            return;
+        }
+        if ($service->isManualApp($app)) {
+            render_not_found('Manual Entry is a locked internal integration.', 'integrations');
+            return;
+        }
+    }
+    ?>
+    <section class="card">
+        <div class="section-header">
+            <div>
+                <h2><?= $app ? 'Edit integration' : 'New integration' ?></h2>
+                <p class="muted"><?= $app ? 'Update source app details. Take care changing slugs once an app is integrated.' : 'Create a source app/integration. The slug is generated automatically from the name.' ?></p>
+            </div>
+            <a class="button" href="<?= h(url_for('integrations')) ?>">Back to integrations</a>
+        </div>
+        <form method="post" class="grid-form">
+            <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+            <input type="hidden" name="action" value="<?= $app ? 'update_app' : 'create_app' ?>">
+            <?php if ($app): ?><input type="hidden" name="app_id" value="<?= (int)$app['id'] ?>"><?php endif; ?>
+            <label>Name <input name="name" required value="<?= h($app['name'] ?? '') ?>" placeholder="Runes of Power"></label>
+            <?php if ($app): ?>
+                <label>Slug <input name="slug" required value="<?= h($app['slug']) ?>"><small>Changing this may affect integrations using stored source app details.</small></label>
+            <?php endif; ?>
+            <label class="wide">Description <input name="description" value="<?= h($app['description'] ?? '') ?>" placeholder="Optional integration notes"></label>
+            <div class="form-actions"><button class="button primary" type="submit"><?= $app ? 'Save integration' : 'Create integration' ?></button></div>
+        </form>
     </section>
     <?php
 }
@@ -2512,58 +2775,26 @@ function render_api_keys(array $apps, array $apiKeys): void
     <section class="card">
         <div class="section-header">
             <div>
-                <h2>Create API key</h2>
-                <p class="muted">Generate keys for integrations. Raw keys are shown once only and are stored as hashes.</p>
-            </div>
-            <a class="button" href="<?= h(url_for('integrations')) ?>">Manage integrations</a>
-        </div>
-        <?php if (!$activeApps): ?>
-            <p class="empty">Create an active integration before generating API keys.</p>
-        <?php else: ?>
-            <form method="post" class="grid-form">
-                <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                <input type="hidden" name="action" value="create_api_key">
-                <label>Integration
-                    <select name="app_id" required>
-                        <option value="">Select…</option>
-                        <?php foreach ($activeApps as $app): ?>
-                            <option value="<?= (int)$app['id'] ?>" <?= $selectedAppId === (int)$app['id'] ? 'selected' : '' ?>><?= h($app['name']) ?> (<?= h($app['slug']) ?>)</option>
-                        <?php endforeach; ?>
-                    </select>
-                </label>
-                <label>Key name <input name="key_name" required placeholder="Production integration"></label>
-                <label>Expires on <input type="date" name="expires_at"><small>Optional. Leave blank for no expiry.</small></label>
-                <div class="wide">
-                    <label>Scopes</label>
-                    <div class="scope-grid">
-                        <?php foreach (AppService::AVAILABLE_SCOPES as $scope => $label): ?>
-                            <label class="scope-check"><input type="checkbox" name="scopes[]" value="<?= h($scope) ?>"> <span><code><?= h($scope) ?></code><small><?= h($label) ?></small></span></label>
-                        <?php endforeach; ?>
-                    </div>
-                </div>
-                <div class="form-actions"><button class="button primary" type="submit">Generate key</button></div>
-            </form>
-        <?php endif; ?>
-    </section>
-
-    <section class="card">
-        <div class="section-header">
-            <div>
                 <h2>API keys</h2>
-                <p class="muted">Edit permissions without changing the key, or regenerate to issue a replacement raw key.</p>
+                <p class="muted">Create, edit, revoke, restore, delete unused keys, or regenerate replacement raw keys.</p>
             </div>
-            <form method="get" class="inline-form">
-                <input type="hidden" name="page" value="api_keys">
-                <label>Integration
-                    <select name="app_id" onchange="this.form.submit()">
-                        <option value="">All integrations</option>
-                        <?php foreach ($activeApps as $app): ?>
-                            <option value="<?= (int)$app['id'] ?>" <?= $selectedAppId === (int)$app['id'] ? 'selected' : '' ?>><?= h($app['name']) ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </label>
-            </form>
+            <div class="actions-cell">
+                <a class="button primary" href="<?= h(url_for('api_key_new', $selectedAppId > 0 ? ['app_id' => $selectedAppId] : [])) ?>">New API key</a>
+                <a class="button" href="<?= h(url_for('integrations')) ?>">Integrations</a>
+            </div>
         </div>
+        <form method="get" class="filter-form filter-panel">
+            <input type="hidden" name="page" value="api_keys">
+            <label>Integration
+                <select name="app_id" onchange="this.form.submit()">
+                    <option value="">All integrations</option>
+                    <?php foreach ($activeApps as $app): ?>
+                        <option value="<?= (int)$app['id'] ?>" <?= $selectedAppId === (int)$app['id'] ? 'selected' : '' ?>><?= h($app['name']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </label>
+            <a class="button" href="<?= h(url_for('api_keys')) ?>">Clear</a>
+        </form>
         <div class="table-wrap">
             <table>
                 <thead><tr><th>Key</th><th>Integration</th><th>Scopes</th><th>Created</th><th>Last used</th><th>Expires</th><th>Status</th><th>Actions</th></tr></thead>
@@ -2573,61 +2804,20 @@ function render_api_keys(array $apps, array $apiKeys): void
                     <tr>
                         <td><strong><?= h($key['key_name']) ?></strong><small>ID <?= (int)$key['id'] ?></small></td>
                         <td><?= h($key['app_name']) ?><small><code><?= h($key['app_slug']) ?></code></small></td>
-                        <td>
-                            <?php foreach ($scopes as $scope): ?>
-                                <code class="scope-code"><?= h($scope) ?></code>
-                            <?php endforeach; ?>
-                        </td>
+                        <td><?php foreach ($scopes as $scope): ?><code class="scope-code"><?= h($scope) ?></code> <?php endforeach; ?></td>
                         <td><?= h(local_datetime($key['created_at'])) ?></td>
                         <td><?= h(local_datetime($key['last_used_at'] ?? null)) ?></td>
                         <td><?= h(local_datetime($key['expires_at'] ?? null)) ?></td>
                         <td><?= $isActive ? badge('active') : badge('revoked') ?></td>
                         <td class="actions-cell">
-                            <details class="inline-edit">
-                                <summary class="button small">Edit</summary>
-                                <form method="post" class="stacked-form compact api-key-edit-form">
-                                    <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                                    <input type="hidden" name="action" value="update_api_key">
-                                    <input type="hidden" name="api_key_id" value="<?= (int)$key['id'] ?>">
-                                    <label>Key name <input name="key_name" value="<?= h($key['key_name']) ?>" required></label>
-                                    <label>Expires on <input type="date" name="expires_at" value="<?= h(!empty($key['expires_at']) ? substr((string)$key['expires_at'], 0, 10) : '') ?>"><small>Leave blank for no expiry.</small></label>
-                                    <label>Scopes</label>
-                                    <div class="scope-grid scope-grid-compact">
-                                        <?php foreach (AppService::AVAILABLE_SCOPES as $scope => $label): ?>
-                                            <label class="scope-check"><input type="checkbox" name="scopes[]" value="<?= h($scope) ?>" <?= in_array($scope, $scopes, true) ? 'checked' : '' ?>> <span><code><?= h($scope) ?></code><small><?= h($label) ?></small></span></label>
-                                        <?php endforeach; ?>
-                                    </div>
-                                    <button class="button small primary" type="submit">Save permissions</button>
-                                </form>
-                            </details>
-                            <form method="post" class="row-action" onsubmit="return confirm('Regenerate this API key? The current raw key will stop working immediately.');">
-                                <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                                <input type="hidden" name="action" value="regenerate_api_key">
-                                <input type="hidden" name="api_key_id" value="<?= (int)$key['id'] ?>">
-                                <button class="button small" type="submit">Regenerate</button>
-                            </form>
+                            <a class="button small" href="<?= h(url_for('api_key_edit', ['id' => (int)$key['id']])) ?>">Edit</a>
                             <?php if ($isActive): ?>
-                                <form method="post" class="row-action" onsubmit="return confirm('Revoke this API key? Existing integrations using it will stop working.');">
-                                    <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                                    <input type="hidden" name="action" value="revoke_api_key">
-                                    <input type="hidden" name="api_key_id" value="<?= (int)$key['id'] ?>">
-                                    <button class="button small" type="submit">Revoke</button>
-                                </form>
+                                <form method="post" class="row-action" onsubmit="return confirm('Revoke this API key? Existing integrations using it will stop working.');"><input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>"><input type="hidden" name="action" value="revoke_api_key"><input type="hidden" name="api_key_id" value="<?= (int)$key['id'] ?>"><button class="button small" type="submit">Revoke</button></form>
                             <?php else: ?>
-                                <form method="post" class="row-action">
-                                    <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                                    <input type="hidden" name="action" value="restore_api_key">
-                                    <input type="hidden" name="api_key_id" value="<?= (int)$key['id'] ?>">
-                                    <button class="button small primary" type="submit">Restore</button>
-                                </form>
+                                <form method="post" class="row-action"><input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>"><input type="hidden" name="action" value="restore_api_key"><input type="hidden" name="api_key_id" value="<?= (int)$key['id'] ?>"><button class="button small primary" type="submit">Restore</button></form>
                             <?php endif; ?>
                             <?php if (empty($key['last_used_at'])): ?>
-                                <form method="post" class="row-action" onsubmit="return confirm('Delete this unused API key record?');">
-                                    <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
-                                    <input type="hidden" name="action" value="delete_api_key">
-                                    <input type="hidden" name="api_key_id" value="<?= (int)$key['id'] ?>">
-                                    <button class="button small danger" type="submit">Delete</button>
-                                </form>
+                                <form method="post" class="row-action" onsubmit="return confirm('Delete this unused API key record?');"><input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>"><input type="hidden" name="action" value="delete_api_key"><input type="hidden" name="api_key_id" value="<?= (int)$key['id'] ?>"><button class="button small danger" type="submit">Delete</button></form>
                             <?php endif; ?>
                         </td>
                     </tr>
@@ -2639,6 +2829,78 @@ function render_api_keys(array $apps, array $apiKeys): void
     </section>
     <?php
 }
+
+function render_api_key_form(?int $keyId, array $apps): void
+{
+    $service = new AppService();
+    $key = null;
+    if ($keyId !== null && $keyId > 0) {
+        try {
+            $key = $service->apiKey($keyId);
+        } catch (Throwable $e) {
+            render_not_found($e->getMessage(), 'api_keys');
+            return;
+        }
+    }
+    $selectedAppId = (int)($_GET['app_id'] ?? ($key['app_id'] ?? 0));
+    $activeApps = array_values(array_filter($apps, fn(array $app): bool => (int)$app['is_active'] === 1 && (string)$app['slug'] !== AppService::SYSTEM_MANUAL_SLUG));
+    $scopes = $key['scopes_array'] ?? [];
+    ?>
+    <section class="card">
+        <div class="section-header">
+            <div>
+                <h2><?= $key ? 'Edit API key' : 'New API key' ?></h2>
+                <p class="muted"><?= $key ? 'Edit permissions and expiry, or regenerate the raw key.' : 'Generate a new raw API key. Copy it from the success message; it is shown once only.' ?></p>
+            </div>
+            <a class="button" href="<?= h(url_for('api_keys')) ?>">Back to API keys</a>
+        </div>
+        <?php if (!$activeApps && !$key): ?>
+            <p class="empty">Create an active integration before generating API keys.</p>
+        <?php else: ?>
+            <form method="post" class="grid-form">
+                <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                <input type="hidden" name="action" value="<?= $key ? 'update_api_key' : 'create_api_key' ?>">
+                <?php if ($key): ?><input type="hidden" name="api_key_id" value="<?= (int)$key['id'] ?>"><?php endif; ?>
+                <label>Integration
+                    <select name="app_id" <?= $key ? 'disabled' : 'required' ?>>
+                        <option value="">Select…</option>
+                        <?php foreach ($activeApps as $app): ?>
+                            <option value="<?= (int)$app['id'] ?>" <?= $selectedAppId === (int)$app['id'] ? 'selected' : '' ?>><?= h($app['name']) ?> (<?= h($app['slug']) ?>)</option>
+                        <?php endforeach; ?>
+                        <?php if ($key && !in_array((int)$key['app_id'], array_map(fn($a) => (int)$a['id'], $activeApps), true)): ?>
+                            <option value="<?= (int)$key['app_id'] ?>" selected><?= h($key['app_name']) ?> (archived)</option>
+                        <?php endif; ?>
+                    </select>
+                </label>
+                <label>Key name <input name="key_name" required value="<?= h($key['key_name'] ?? '') ?>" placeholder="Production integration"></label>
+                <label>Expires on <input type="date" name="expires_at" value="<?= h(!empty($key['expires_at']) ? substr((string)$key['expires_at'], 0, 10) : '') ?>"><small>Leave blank for no expiry.</small></label>
+                <div class="wide">
+                    <label>Scopes</label>
+                    <div class="scope-grid">
+                        <?php foreach (AppService::AVAILABLE_SCOPES as $scope => $label): ?>
+                            <label class="scope-check"><input type="checkbox" name="scopes[]" value="<?= h($scope) ?>" <?= in_array($scope, $scopes, true) ? 'checked' : '' ?>> <span><code><?= h($scope) ?></code><small><?= h($label) ?></small></span></label>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+                <div class="form-actions"><button class="button primary" type="submit"><?= $key ? 'Save API key' : 'Generate API key' ?></button></div>
+            </form>
+            <?php if ($key): ?>
+                <div class="danger-zone">
+                    <h2>Regenerate raw key</h2>
+                    <p class="muted">This immediately invalidates the old raw key. The replacement key is shown once in the success message.</p>
+                    <form method="post" onsubmit="return confirm('Regenerate this API key? The current raw key will stop working immediately.');">
+                        <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+                        <input type="hidden" name="action" value="regenerate_api_key">
+                        <input type="hidden" name="api_key_id" value="<?= (int)$key['id'] ?>">
+                        <button class="button danger" type="submit">Regenerate key</button>
+                    </form>
+                </div>
+            <?php endif; ?>
+        <?php endif; ?>
+    </section>
+    <?php
+}
+
 
 function render_source_apps(array $apps, array $apiKeys): void
 {

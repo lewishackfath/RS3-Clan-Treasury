@@ -12,6 +12,7 @@ final class AdminService
     public function all(bool $activeOnly = true): array
     {
         $sql = 'SELECT ta.*, 
+                    (SELECT COUNT(*) FROM treasury_admin_rsns ar WHERE ar.admin_id = ta.id AND ar.is_active = 1) AS active_rsn_count,
                     (SELECT COUNT(*) FROM treasury_ledger_entries le WHERE le.admin_id = ta.id) AS ledger_entry_count,
                     (SELECT COUNT(*) FROM treasury_transactions tx WHERE tx.posted_by_admin_id = ta.id) AS posted_transaction_count,
                     (SELECT COUNT(*) FROM treasury_reconciliations r WHERE r.from_admin_id = ta.id OR r.created_by_admin_id = ta.id OR r.completed_by_admin_id = ta.id) AS reconciliation_count,
@@ -52,12 +53,27 @@ final class AdminService
         return $row ?: null;
     }
 
-
     public function findByRsn(string $rsn): ?array
     {
         $rsn = $this->cleanRsn($rsn);
         if ($rsn === '') {
             return null;
+        }
+
+        $stmt = Database::pdo()->prepare(
+            'SELECT ta.*, ar.rsn AS matched_rsn, ar.is_primary AS matched_rsn_is_primary
+             FROM treasury_admin_rsns ar
+             INNER JOIN treasury_admins ta ON ta.id = ar.admin_id
+             WHERE LOWER(ar.rsn) = LOWER(:rsn)
+               AND ar.is_active = 1
+               AND ta.is_active = 1
+             ORDER BY ar.is_primary DESC, ta.id ASC
+             LIMIT 1'
+        );
+        $stmt->execute(['rsn' => $rsn]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row) {
+            return $row;
         }
 
         $stmt = Database::pdo()->prepare(
@@ -74,10 +90,12 @@ final class AdminService
 
     public function create(array $data, ?int $actorAdminId = null): array
     {
-        $rsn = $this->cleanRsn((string)($data['rsn'] ?? ''));
+        $rsn = $this->cleanRsn((string)($data['primary_rsn'] ?? $data['rsn'] ?? ''));
         if ($rsn === '') {
-            throw new \InvalidArgumentException('RSN is required.');
+            throw new \InvalidArgumentException('Primary RSN is required.');
         }
+
+        $this->assertRsnAvailable($rsn, null);
 
         $displayName = trim((string)($data['display_name'] ?? '')) ?: $rsn;
         $discordUserId = $this->cleanDiscordUserId((string)($data['discord_user_id'] ?? ''));
@@ -96,6 +114,7 @@ final class AdminService
             ]);
 
             $id = (int)$pdo->lastInsertId();
+            $this->insertAdminRsn($id, $rsn, true, true);
             $this->insertRsnHistory($id, $rsn, $actorAdminId, true);
             $pdo->commit();
         } catch (\Throwable $e) {
@@ -117,43 +136,42 @@ final class AdminService
             throw new \RuntimeException('Restore this user before editing them.');
         }
 
-        $rsn = $this->cleanRsn((string)($data['rsn'] ?? ''));
-        if ($rsn === '') {
-            throw new \InvalidArgumentException('RSN is required.');
-        }
-        $displayName = trim((string)($data['display_name'] ?? '')) ?: $rsn;
+        $displayName = trim((string)($data['display_name'] ?? '')) ?: (string)$before['rsn'];
         $discordUserId = $this->cleanDiscordUserId((string)($data['discord_user_id'] ?? ''));
 
-        $pdo = Database::pdo();
-        $pdo->beginTransaction();
-        try {
-            $stmt = $pdo->prepare(
-                'UPDATE treasury_admins
-                 SET rsn = :rsn, display_name = :display_name, discord_user_id = :discord_user_id, updated_at = NOW()
-                 WHERE id = :id'
-            );
-            $stmt->execute([
-                'id' => $id,
-                'rsn' => $rsn,
-                'display_name' => $displayName,
-                'discord_user_id' => $discordUserId,
-            ]);
+        $stmt = Database::pdo()->prepare(
+            'UPDATE treasury_admins
+             SET display_name = :display_name, discord_user_id = :discord_user_id, updated_at = NOW()
+             WHERE id = :id'
+        );
+        $stmt->execute([
+            'id' => $id,
+            'display_name' => $displayName,
+            'discord_user_id' => $discordUserId,
+        ]);
 
-            if (strcasecmp((string)$before['rsn'], $rsn) !== 0) {
-                $this->closeCurrentRsnHistory($id);
-                $this->insertRsnHistory($id, $rsn, $actorAdminId, true);
+        if (isset($data['rsn']) || isset($data['primary_rsn'])) {
+            $newPrimary = $this->cleanRsn((string)($data['primary_rsn'] ?? $data['rsn'] ?? ''));
+            if ($newPrimary !== '' && strcasecmp($newPrimary, (string)$before['rsn']) !== 0) {
+                $existing = $this->findAdminRsn($id, $newPrimary);
+                if (!$existing) {
+                    $created = $this->addRsn($id, $newPrimary, true, $actorAdminId);
+                    $this->setPrimaryRsn((int)$created['id'], $actorAdminId);
+                } else {
+                    $this->setPrimaryRsn((int)$existing['id'], $actorAdminId);
+                }
             }
-
-            $pdo->commit();
-        } catch (\Throwable $e) {
-            $pdo->rollBack();
-            throw $e;
         }
 
         $after = $this->get($id);
         $this->syncAdminHeldAccountName($id, $after);
         AuditService::log('user.updated', 'treasury_admin', (string)$id, $before, $after, null, $actorAdminId);
         return $after;
+    }
+
+    public function updateProfile(int $id, array $data): array
+    {
+        return $this->update($id, $data, $id);
     }
 
     public function setActive(int $id, bool $active, int $actorAdminId): void
@@ -186,6 +204,9 @@ final class AdminService
             $stmt = $pdo->prepare('DELETE FROM treasury_admin_rsn_history WHERE admin_id = :id');
             $stmt->execute(['id' => $id]);
 
+            $stmt = $pdo->prepare('DELETE FROM treasury_admin_rsns WHERE admin_id = :id');
+            $stmt->execute(['id' => $id]);
+
             $stmt = $pdo->prepare('DELETE FROM treasury_accounts WHERE admin_id = :id');
             $stmt->execute(['id' => $id]);
 
@@ -199,6 +220,164 @@ final class AdminService
         }
 
         AuditService::log('user.deleted', 'treasury_admin', (string)$id, $before, null, null, $actorAdminId);
+    }
+
+    public function adminRsns(int $adminId, bool $includeInactive = true): array
+    {
+        $sql = 'SELECT * FROM treasury_admin_rsns WHERE admin_id = :admin_id';
+        if (!$includeInactive) {
+            $sql .= ' AND is_active = 1';
+        }
+        $sql .= ' ORDER BY is_primary DESC, is_active DESC, rsn ASC, id ASC';
+        $stmt = Database::pdo()->prepare($sql);
+        $stmt->execute(['admin_id' => $adminId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /** @return array<int,array> */
+    public function rsnsForAdmins(array $adminIds): array
+    {
+        $adminIds = array_values(array_unique(array_map('intval', $adminIds)));
+        if (!$adminIds) {
+            return [];
+        }
+        $placeholders = implode(',', array_fill(0, count($adminIds), '?'));
+        $stmt = Database::pdo()->prepare(
+            'SELECT * FROM treasury_admin_rsns
+             WHERE admin_id IN (' . $placeholders . ')
+             ORDER BY admin_id ASC, is_primary DESC, is_active DESC, rsn ASC, id ASC'
+        );
+        $stmt->execute($adminIds);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $grouped = [];
+        foreach ($rows as $row) {
+            $grouped[(int)$row['admin_id']][] = $row;
+        }
+        return $grouped;
+    }
+
+    public function addRsn(int $adminId, string $rsn, bool $primary, int $actorAdminId): array
+    {
+        $this->get($adminId);
+        $rsn = $this->cleanRsn($rsn);
+        if ($rsn === '') {
+            throw new \InvalidArgumentException('RSN is required.');
+        }
+        $this->assertRsnAvailable($rsn, $adminId);
+
+        $pdo = Database::pdo();
+        $pdo->beginTransaction();
+        try {
+            if ($primary) {
+                $pdo->prepare('UPDATE treasury_admin_rsns SET is_primary = 0 WHERE admin_id = :admin_id')->execute(['admin_id' => $adminId]);
+            }
+
+            $existing = $this->findAdminRsn($adminId, $rsn);
+            if ($existing) {
+                $stmt = $pdo->prepare('UPDATE treasury_admin_rsns SET is_active = 1, is_primary = :primary, updated_at = NOW() WHERE id = :id');
+                $stmt->execute(['primary' => $primary ? 1 : 0, 'id' => (int)$existing['id']]);
+                $rsnId = (int)$existing['id'];
+            } else {
+                $stmt = $pdo->prepare(
+                    'INSERT INTO treasury_admin_rsns (admin_id, rsn, is_primary, is_active, created_at, updated_at)
+                     VALUES (:admin_id, :rsn, :is_primary, 1, NOW(), NOW())'
+                );
+                $stmt->execute([
+                    'admin_id' => $adminId,
+                    'rsn' => $rsn,
+                    'is_primary' => $primary ? 1 : 0,
+                ]);
+                $rsnId = (int)$pdo->lastInsertId();
+            }
+
+            if ($primary) {
+                $this->setPrimaryRsnInsideTransaction($adminId, $rsn, $actorAdminId);
+            }
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+
+        $row = $this->getAdminRsn($rsnId);
+        AuditService::log('user_rsn.added', 'treasury_admin_rsn', (string)$rsnId, null, $row, null, $actorAdminId);
+        return $row;
+    }
+
+    public function updateRsn(int $rsnId, string $rsn, bool $primary, int $actorAdminId): array
+    {
+        $before = $this->getAdminRsn($rsnId);
+        $adminId = (int)$before['admin_id'];
+        $rsn = $this->cleanRsn($rsn);
+        if ($rsn === '') {
+            throw new \InvalidArgumentException('RSN is required.');
+        }
+        $this->assertRsnAvailable($rsn, $adminId, $rsnId);
+
+        $pdo = Database::pdo();
+        $pdo->beginTransaction();
+        try {
+            if ($primary) {
+                $pdo->prepare('UPDATE treasury_admin_rsns SET is_primary = 0 WHERE admin_id = :admin_id')->execute(['admin_id' => $adminId]);
+            }
+            $stmt = $pdo->prepare('UPDATE treasury_admin_rsns SET rsn = :rsn, is_primary = :is_primary, is_active = 1, updated_at = NOW() WHERE id = :id');
+            $stmt->execute(['rsn' => $rsn, 'is_primary' => $primary ? 1 : 0, 'id' => $rsnId]);
+            if ($primary) {
+                $this->setPrimaryRsnInsideTransaction($adminId, $rsn, $actorAdminId);
+            }
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+
+        $after = $this->getAdminRsn($rsnId);
+        AuditService::log('user_rsn.updated', 'treasury_admin_rsn', (string)$rsnId, $before, $after, null, $actorAdminId);
+        return $after;
+    }
+
+    public function setPrimaryRsn(int $rsnId, int $actorAdminId): void
+    {
+        $row = $this->getAdminRsn($rsnId);
+        if ((int)$row['is_active'] !== 1) {
+            throw new \RuntimeException('Restore this RSN before setting it as primary.');
+        }
+
+        $pdo = Database::pdo();
+        $pdo->beginTransaction();
+        try {
+            $pdo->prepare('UPDATE treasury_admin_rsns SET is_primary = 0 WHERE admin_id = :admin_id')->execute(['admin_id' => (int)$row['admin_id']]);
+            $pdo->prepare('UPDATE treasury_admin_rsns SET is_primary = 1, updated_at = NOW() WHERE id = :id')->execute(['id' => $rsnId]);
+            $this->setPrimaryRsnInsideTransaction((int)$row['admin_id'], (string)$row['rsn'], $actorAdminId);
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+
+        AuditService::log('user_rsn.primary_set', 'treasury_admin_rsn', (string)$rsnId, null, $this->getAdminRsn($rsnId), null, $actorAdminId);
+    }
+
+    public function setRsnActive(int $rsnId, bool $active, int $actorAdminId): void
+    {
+        $before = $this->getAdminRsn($rsnId);
+        if (!$active && (int)$before['is_primary'] === 1) {
+            throw new \RuntimeException('Set another active RSN as primary before archiving this RSN.');
+        }
+        Database::pdo()->prepare('UPDATE treasury_admin_rsns SET is_active = :active, updated_at = NOW() WHERE id = :id')
+            ->execute(['active' => $active ? 1 : 0, 'id' => $rsnId]);
+        $after = $this->getAdminRsn($rsnId);
+        AuditService::log($active ? 'user_rsn.restored' : 'user_rsn.archived', 'treasury_admin_rsn', (string)$rsnId, $before, $after, null, $actorAdminId);
+    }
+
+    public function deleteRsn(int $rsnId, int $actorAdminId): void
+    {
+        $before = $this->getAdminRsn($rsnId);
+        if ((int)$before['is_primary'] === 1) {
+            throw new \RuntimeException('Primary RSNs cannot be deleted. Set another RSN as primary first.');
+        }
+        Database::pdo()->prepare('DELETE FROM treasury_admin_rsns WHERE id = :id')->execute(['id' => $rsnId]);
+        AuditService::log('user_rsn.deleted', 'treasury_admin_rsn', (string)$rsnId, $before, null, null, $actorAdminId);
     }
 
     public function rsnHistory(int $adminId): array
@@ -249,6 +428,56 @@ final class AdminService
             if ((int)$stmt->fetchColumn() === 0) {
                 $this->insertRsnHistory((int)$row['id'], (string)$row['rsn'], null, true);
             }
+
+            $stmt = $pdo->prepare('SELECT COUNT(*) FROM treasury_admin_rsns WHERE admin_id = :admin_id');
+            $stmt->execute(['admin_id' => (int)$row['id']]);
+            if ((int)$stmt->fetchColumn() === 0) {
+                $this->insertAdminRsn((int)$row['id'], (string)$row['rsn'], true, true);
+            }
+        }
+    }
+
+    public function getAdminRsn(int $rsnId): array
+    {
+        $stmt = Database::pdo()->prepare('SELECT * FROM treasury_admin_rsns WHERE id = :id LIMIT 1');
+        $stmt->execute(['id' => $rsnId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            throw new \RuntimeException('RSN record not found', 404);
+        }
+        return $row;
+    }
+
+    private function findAdminRsn(int $adminId, string $rsn): ?array
+    {
+        $stmt = Database::pdo()->prepare('SELECT * FROM treasury_admin_rsns WHERE admin_id = :admin_id AND LOWER(rsn) = LOWER(:rsn) LIMIT 1');
+        $stmt->execute(['admin_id' => $adminId, 'rsn' => $rsn]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ?: null;
+    }
+
+    private function assertRsnAvailable(string $rsn, ?int $adminId, ?int $exceptRsnId = null): void
+    {
+        $sql = 'SELECT ar.*, ta.display_name, ta.rsn AS primary_rsn
+                FROM treasury_admin_rsns ar
+                INNER JOIN treasury_admins ta ON ta.id = ar.admin_id
+                WHERE LOWER(ar.rsn) = LOWER(:rsn) AND ar.is_active = 1';
+        $params = ['rsn' => $rsn];
+        if ($adminId !== null) {
+            $sql .= ' AND ar.admin_id <> :admin_id';
+            $params['admin_id'] = $adminId;
+        }
+        if ($exceptRsnId !== null) {
+            $sql .= ' AND ar.id <> :except_id';
+            $params['except_id'] = $exceptRsnId;
+        }
+        $sql .= ' LIMIT 1';
+        $stmt = Database::pdo()->prepare($sql);
+        $stmt->execute($params);
+        $existing = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($existing) {
+            $owner = (string)($existing['display_name'] ?: $existing['primary_rsn']);
+            throw new \InvalidArgumentException('That RSN is already assigned to ' . $owner . '.');
         }
     }
 
@@ -312,5 +541,30 @@ final class AdminService
             'is_current' => $current ? 1 : 0,
             'changed_by_admin_id' => $actorAdminId,
         ]);
+    }
+
+    private function insertAdminRsn(int $adminId, string $rsn, bool $primary, bool $active): void
+    {
+        $stmt = Database::pdo()->prepare(
+            'INSERT INTO treasury_admin_rsns (admin_id, rsn, is_primary, is_active, created_at, updated_at)
+             VALUES (:admin_id, :rsn, :is_primary, :is_active, NOW(), NOW())'
+        );
+        $stmt->execute([
+            'admin_id' => $adminId,
+            'rsn' => $rsn,
+            'is_primary' => $primary ? 1 : 0,
+            'is_active' => $active ? 1 : 0,
+        ]);
+    }
+
+    private function setPrimaryRsnInsideTransaction(int $adminId, string $rsn, int $actorAdminId): void
+    {
+        $before = $this->get($adminId);
+        Database::pdo()->prepare('UPDATE treasury_admins SET rsn = :rsn, updated_at = NOW() WHERE id = :id')
+            ->execute(['rsn' => $rsn, 'id' => $adminId]);
+        if (strcasecmp((string)$before['rsn'], $rsn) !== 0) {
+            $this->closeCurrentRsnHistory($adminId);
+            $this->insertRsnHistory($adminId, $rsn, $actorAdminId, true);
+        }
     }
 }

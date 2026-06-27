@@ -626,3 +626,18 @@ This build separates integration management from API key management.
 - The sidebar is grouped into workflow categories to make the app easier to navigate.
 
 No database migration is required.
+
+## Multi-RSN users and management screens
+
+This build adds support for multiple RSNs per treasury user. Each user has one primary RSN for display and account naming, plus any number of additional active RSNs that can be matched by API workflows such as `received_by_admin_rsn` and `paid_by_admin_rsn`.
+
+The DB bootstrap creates and backfills the `treasury_admin_rsns` table automatically. Existing `treasury_admins.rsn` values are retained as the primary RSN for backwards compatibility.
+
+UI changes:
+
+- New **Profile** page for the current Discord-linked treasury user.
+- Users now use dedicated **New user** and **Edit user** screens.
+- User edit screens manage multiple RSNs.
+- Integrations now use dedicated **New integration** and **Edit integration** screens.
+- API keys now use dedicated **New API key** and **Edit API key** screens.
+- Inline editing has been removed from Users, Integrations, and API Keys.

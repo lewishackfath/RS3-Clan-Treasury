@@ -51,6 +51,22 @@ CREATE TABLE treasury_admin_rsn_history (
     INDEX idx_treasury_admin_rsn_history_current (is_current)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE treasury_admin_rsns (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    admin_id BIGINT UNSIGNED NOT NULL,
+    rsn VARCHAR(20) NOT NULL,
+    is_primary TINYINT(1) NOT NULL DEFAULT 0,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NULL,
+    FOREIGN KEY (admin_id) REFERENCES treasury_admins(id),
+    UNIQUE KEY unique_treasury_admin_rsn (admin_id, rsn),
+    INDEX idx_treasury_admin_rsns_admin (admin_id),
+    INDEX idx_treasury_admin_rsns_rsn (rsn),
+    INDEX idx_treasury_admin_rsns_primary (is_primary),
+    INDEX idx_treasury_admin_rsns_active (is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE treasury_accounts (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     code VARCHAR(50) NOT NULL UNIQUE,

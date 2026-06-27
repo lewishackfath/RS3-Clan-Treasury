@@ -10,7 +10,7 @@ use Treasury\Support\Env;
 
 final class DatabaseBootstrap
 {
-    private const SCHEMA_VERSION = '2026.06.27.admin-owed-wording';
+    private const SCHEMA_VERSION = '2026.06.27.multi-rsn-profile-screens';
 
     private const SYSTEM_APPS = [
         [
@@ -173,6 +173,21 @@ final class DatabaseBootstrap
                 INDEX idx_treasury_admin_rsn_history_admin (admin_id),
                 INDEX idx_treasury_admin_rsn_history_rsn (rsn),
                 INDEX idx_treasury_admin_rsn_history_current (is_current)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'CREATE TABLE IF NOT EXISTS treasury_admin_rsns (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                admin_id BIGINT UNSIGNED NOT NULL,
+                rsn VARCHAR(20) NOT NULL,
+                is_primary TINYINT(1) NOT NULL DEFAULT 0,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NULL,
+                UNIQUE KEY unique_treasury_admin_rsn (admin_id, rsn),
+                INDEX idx_treasury_admin_rsns_admin (admin_id),
+                INDEX idx_treasury_admin_rsns_rsn (rsn),
+                INDEX idx_treasury_admin_rsns_primary (is_primary),
+                INDEX idx_treasury_admin_rsns_active (is_active)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
 
             'CREATE TABLE IF NOT EXISTS treasury_accounts (
@@ -338,6 +353,11 @@ final class DatabaseBootstrap
             'treasury_admins' => [
                 'updated_at' => 'DATETIME NULL',
             ],
+            'treasury_admin_rsns' => [
+                'updated_at' => 'DATETIME NULL',
+                'is_primary' => 'TINYINT(1) NOT NULL DEFAULT 0',
+                'is_active' => 'TINYINT(1) NOT NULL DEFAULT 1',
+            ],
             'treasury_accounts' => [
                 'normal_balance' => 'ENUM("debit","credit") NOT NULL DEFAULT "debit"',
                 'is_system' => 'TINYINT(1) NOT NULL DEFAULT 0',
@@ -380,6 +400,10 @@ final class DatabaseBootstrap
             ['treasury_admin_rsn_history', 'idx_treasury_admin_rsn_history_admin', 'admin_id'],
             ['treasury_admin_rsn_history', 'idx_treasury_admin_rsn_history_rsn', 'rsn'],
             ['treasury_admin_rsn_history', 'idx_treasury_admin_rsn_history_current', 'is_current'],
+            ['treasury_admin_rsns', 'idx_treasury_admin_rsns_admin', 'admin_id'],
+            ['treasury_admin_rsns', 'idx_treasury_admin_rsns_rsn', 'rsn'],
+            ['treasury_admin_rsns', 'idx_treasury_admin_rsns_primary', 'is_primary'],
+            ['treasury_admin_rsns', 'idx_treasury_admin_rsns_active', 'is_active'],
             ['treasury_accounts', 'idx_treasury_accounts_type', 'account_type'],
             ['treasury_accounts', 'idx_treasury_accounts_admin', 'admin_id'],
             ['treasury_accounts', 'idx_treasury_accounts_app', 'app_id'],
@@ -439,20 +463,48 @@ final class DatabaseBootstrap
     {
         $admins = $pdo->query('SELECT id, rsn FROM treasury_admins')->fetchAll(PDO::FETCH_ASSOC);
         foreach ($admins as $admin) {
+            $adminId = (int)$admin['id'];
+            $rsn = (string)$admin['rsn'];
+
             $stmt = $pdo->prepare('SELECT COUNT(*) FROM treasury_admin_rsn_history WHERE admin_id = :admin_id');
-            $stmt->execute(['admin_id' => (int)$admin['id']]);
-            if ((int)$stmt->fetchColumn() > 0) {
-                continue;
+            $stmt->execute(['admin_id' => $adminId]);
+            if ((int)$stmt->fetchColumn() === 0) {
+                $stmt = $pdo->prepare(
+                    'INSERT INTO treasury_admin_rsn_history (admin_id, rsn, effective_from, effective_to, is_current, changed_by_admin_id, created_at)
+                     VALUES (:admin_id, :rsn, NOW(), NULL, 1, NULL, NOW())'
+                );
+                $stmt->execute([
+                    'admin_id' => $adminId,
+                    'rsn' => $rsn,
+                ]);
             }
 
-            $stmt = $pdo->prepare(
-                'INSERT INTO treasury_admin_rsn_history (admin_id, rsn, effective_from, effective_to, is_current, changed_by_admin_id, created_at)
-                 VALUES (:admin_id, :rsn, NOW(), NULL, 1, NULL, NOW())'
-            );
-            $stmt->execute([
-                'admin_id' => (int)$admin['id'],
-                'rsn' => (string)$admin['rsn'],
-            ]);
+            $stmt = $pdo->prepare('SELECT COUNT(*) FROM treasury_admin_rsns WHERE admin_id = :admin_id');
+            $stmt->execute(['admin_id' => $adminId]);
+            if ((int)$stmt->fetchColumn() === 0) {
+                $stmt = $pdo->prepare(
+                    'INSERT INTO treasury_admin_rsns (admin_id, rsn, is_primary, is_active, created_at, updated_at)
+                     VALUES (:admin_id, :rsn, 1, 1, NOW(), NOW())'
+                );
+                $stmt->execute([
+                    'admin_id' => $adminId,
+                    'rsn' => $rsn,
+                ]);
+            } else {
+                $stmt = $pdo->prepare('SELECT COUNT(*) FROM treasury_admin_rsns WHERE admin_id = :admin_id AND is_primary = 1');
+                $stmt->execute(['admin_id' => $adminId]);
+                if ((int)$stmt->fetchColumn() === 0) {
+                    $stmt = $pdo->prepare('UPDATE treasury_admin_rsns SET is_primary = 1, is_active = 1, updated_at = NOW() WHERE admin_id = :admin_id AND LOWER(rsn) = LOWER(:rsn) LIMIT 1');
+                    $stmt->execute(['admin_id' => $adminId, 'rsn' => $rsn]);
+                    if ($stmt->rowCount() === 0) {
+                        $stmt = $pdo->prepare(
+                            'INSERT IGNORE INTO treasury_admin_rsns (admin_id, rsn, is_primary, is_active, created_at, updated_at)
+                             VALUES (:admin_id, :rsn, 1, 1, NOW(), NOW())'
+                        );
+                        $stmt->execute(['admin_id' => $adminId, 'rsn' => $rsn]);
+                    }
+                }
+            }
         }
     }
 
