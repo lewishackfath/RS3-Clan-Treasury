@@ -739,3 +739,38 @@ tr:hover td { background: rgba(91, 62, 24, .08); }
     background: transparent;
     color: inherit;
 }
+
+/* Discord/settings polish */
+.login-card .brand strong,
+.login-card .brand.large strong,
+.setup-card .brand strong {
+    color: var(--text);
+    text-shadow: none;
+}
+.login-card .brand small,
+.login-card .brand.large small,
+.setup-card .brand small {
+    color: var(--muted);
+}
+.login-card .brand-logo,
+.setup-card .brand-logo {
+    background: rgba(45, 33, 19, .12);
+    box-shadow: 0 8px 20px rgba(45, 28, 9, .22);
+}
+.form-help,
+label small.form-help {
+    display: block;
+    margin-top: .35rem;
+    color: var(--muted);
+    font-size: .82rem;
+    line-height: 1.35;
+}
+.config-grid small {
+    display: block;
+    margin-top: .25rem;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+}
+.aligned-form label {
+    display: block;
+}

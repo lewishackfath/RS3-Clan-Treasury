@@ -11,12 +11,14 @@ use Treasury\Services\AdminBalanceOffsetService;
 use Treasury\Services\AppService;
 use Treasury\Services\ApiRequestLogService;
 use Treasury\Services\BalanceService;
+use Treasury\Services\DiscordBotService;
 use Treasury\Services\ManualLedgerService;
 use Treasury\Services\PaymentRequestService;
 use Treasury\Services\PayoutRequestService;
 use Treasury\Services\ReconciliationService;
 use Treasury\Services\ReversalService;
 use Treasury\Services\ReportService;
+use Treasury\Services\SettingService;
 use Treasury\Services\TreasuryQueryService;
 use Treasury\Support\Env;
 use Treasury\Support\GP;
@@ -519,6 +521,14 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 AdminSession::setActingAdminId($adminId);
                 Flash::add('success', 'Acting admin updated.');
                 redirect_to(current_page());
+
+            case 'update_discord_transaction_log':
+                (new DiscordBotService())->setTransactionLogChannelId(
+                    (string)($_POST['transaction_log_channel_id'] ?? ''),
+                    require_acting_admin()
+                );
+                Flash::add('success', 'Discord transaction log channel updated.');
+                redirect_to('settings');
 
             case 'create_admin':
                 $actorId = AdminSession::actingAdminId();
@@ -3204,6 +3214,23 @@ function render_source_apps(array $apps, array $apiKeys): void
 
 function render_settings(array $apps): void
 {
+    $discord = new DiscordBotService();
+    $summary = $discord->guildSummary();
+    $channels = [];
+    $channelsError = null;
+    try {
+        $channels = $discord->textChannels();
+    } catch (Throwable $e) {
+        $channelsError = $e->getMessage();
+    }
+    $selectedChannelId = $discord->transactionLogChannelId();
+    $selectedChannelName = null;
+    foreach ($channels as $channel) {
+        if ((string)$channel['id'] === $selectedChannelId) {
+            $selectedChannelName = '#' . (string)$channel['name'];
+            break;
+        }
+    }
     ?>
     <section class="card">
         <div class="section-header">
@@ -3213,12 +3240,69 @@ function render_settings(array $apps): void
         <p class="muted">Discord OAuth controls sign-in. Link Discord user IDs to treasury users from the Users page.</p>
         <div class="config-grid">
             <div><span>Client ID</span><strong><?= h(Env::get('DISCORD_CLIENT_ID', '') ?: 'Not set') ?></strong></div>
-            <div><span>Guild ID</span><strong><?= h(Env::get('DISCORD_GUILD_ID', '') ?: 'Optional') ?></strong></div>
+            <div>
+                <span>Guild</span>
+                <strong><?= h(($summary['guild_name'] ?? '') ?: (Env::get('DISCORD_GUILD_ID', '') ?: 'Optional')) ?></strong>
+                <?php if (!empty($summary['guild_id'])): ?><small><?= h((string)$summary['guild_id']) ?></small><?php endif; ?>
+            </div>
             <div><span>Redirect URI</span><strong><?= h(Env::get('DISCORD_REDIRECT_URI', '') ?: 'Not set') ?></strong></div>
-            <div><span>Role IDs</span><strong><?= h(Env::get('DISCORD_ADMIN_ROLE_IDS', '') ?: 'Linked users / owner IDs only') ?></strong></div>
+            <div>
+                <span>Allowed roles</span>
+                <?php if (($summary['role_ids'] ?? []) === []): ?>
+                    <strong>Linked users / owner IDs only</strong>
+                <?php else: ?>
+                    <strong>
+                        <?php foreach (($summary['roles'] ?? []) as $i => $role): ?>
+                            <?= $i > 0 ? '<br>' : '' ?><?= h(($role['name'] ?? '') ?: (string)$role['id']) ?>
+                        <?php endforeach; ?>
+                    </strong>
+                <?php endif; ?>
+            </div>
         </div>
+        <?php if (!empty($summary['error'])): ?>
+            <p class="notice-inline"><strong>Discord lookup issue:</strong> <?= h((string)$summary['error']) ?>. The app will fall back to configured IDs until the bot token/server access is corrected.</p>
+        <?php elseif (!$discord->botConfigured()): ?>
+            <p class="notice-inline"><strong>Bot token not configured.</strong> Set <code>DISCORD_BOT_TOKEN</code> to resolve guild, role, and channel names and to send transaction log messages.</p>
+        <?php endif; ?>
         <p class="muted"><a href="<?= h(url_for('users')) ?>">Open Users</a> to manage treasury users, RSNs, Discord links, and active status.</p>
         <p class="muted"><a href="<?= h(url_for('integrations')) ?>">Open Integrations</a> to manage source apps, or <a href="<?= h(url_for('api_keys')) ?>">open API Keys</a> to manage API access.</p>
+    </section>
+
+    <section class="card">
+        <div class="section-header">
+            <div>
+                <h2>Treasury transaction Discord log</h2>
+                <p class="muted">Choose the Discord channel that receives notifications when GP moves into or out of the official treasury account.</p>
+            </div>
+            <span class="pill"><?= $selectedChannelId !== '' ? 'Configured' : 'Not configured' ?></span>
+        </div>
+        <form method="post" class="grid-form aligned-form">
+            <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
+            <input type="hidden" name="action" value="update_discord_transaction_log">
+            <?php if ($channels !== []): ?>
+                <label class="wide">Transaction log channel
+                    <select name="transaction_log_channel_id">
+                        <option value="">Do not send treasury transaction messages</option>
+                        <?php foreach ($channels as $channel): ?>
+                            <option value="<?= h((string)$channel['id']) ?>" <?= $selectedChannelId === (string)$channel['id'] ? 'selected' : '' ?>>#<?= h((string)$channel['name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <small class="form-help">The bot needs View Channel, Send Messages, and Embed Links in the selected channel.</small>
+                </label>
+            <?php else: ?>
+                <label class="wide">Transaction log channel ID
+                    <input name="transaction_log_channel_id" value="<?= h($selectedChannelId) ?>" placeholder="Discord channel ID">
+                    <small class="form-help"><?= $channelsError ? h($channelsError) : 'Set DISCORD_BOT_TOKEN and DISCORD_GUILD_ID to choose from a channel list.' ?></small>
+                </label>
+            <?php endif; ?>
+            <?php if ($selectedChannelId !== ''): ?>
+                <div class="wide notice-inline">
+                    Current channel: <strong><?= h($selectedChannelName ?: $selectedChannelId) ?></strong>
+                    <?php if ($selectedChannelName): ?><small><?= h($selectedChannelId) ?></small><?php endif; ?>
+                </div>
+            <?php endif; ?>
+            <div class="form-actions"><button class="button primary" type="submit">Save Discord log channel</button></div>
+        </form>
     </section>
     <?php
 }

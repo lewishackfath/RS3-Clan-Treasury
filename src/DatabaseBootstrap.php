@@ -10,7 +10,7 @@ use Treasury\Support\Env;
 
 final class DatabaseBootstrap
 {
-    private const SCHEMA_VERSION = '2026.06.27.api-request-logs';
+    private const SCHEMA_VERSION = '2026.06.28.discord-transaction-log-settings';
 
     private const SYSTEM_APPS = [
         [
@@ -356,6 +356,15 @@ final class DatabaseBootstrap
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
 
 
+            'CREATE TABLE IF NOT EXISTS treasury_settings (
+                name VARCHAR(100) NOT NULL PRIMARY KEY,
+                value TEXT NULL,
+                updated_by_admin_id BIGINT UNSIGNED NULL,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_treasury_settings_updated_by (updated_by_admin_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+
             'CREATE TABLE IF NOT EXISTS treasury_api_request_logs (
                 id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                 request_uuid CHAR(36) NOT NULL UNIQUE,
@@ -419,6 +428,11 @@ final class DatabaseBootstrap
                 'metadata' => 'JSON NULL',
                 'related_transaction_id' => 'BIGINT UNSIGNED NULL',
             ],
+            'treasury_settings' => [
+                'value' => 'TEXT NULL',
+                'updated_by_admin_id' => 'BIGINT UNSIGNED NULL',
+                'updated_at' => 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+            ],
             'treasury_api_request_logs' => [
                 'request_uuid' => 'CHAR(36) NULL',
                 'app_id' => 'BIGINT UNSIGNED NULL',
@@ -471,6 +485,7 @@ final class DatabaseBootstrap
             ['treasury_request_settlements', 'idx_treasury_request_settlements_transaction', 'transaction_id'],
             ['treasury_request_settlements', 'idx_treasury_request_settlements_request', 'request_type, request_id'],
             ['treasury_audit_log', 'idx_treasury_audit_created', 'created_at'],
+            ['treasury_settings', 'idx_treasury_settings_updated_by', 'updated_by_admin_id'],
             ['treasury_api_request_logs', 'idx_treasury_api_logs_created', 'created_at'],
             ['treasury_api_request_logs', 'idx_treasury_api_logs_app', 'app_id'],
             ['treasury_api_request_logs', 'idx_treasury_api_logs_key', 'api_key_id'],

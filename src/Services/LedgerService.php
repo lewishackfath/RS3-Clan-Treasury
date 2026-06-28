@@ -87,6 +87,8 @@ final class LedgerService
             ]);
         }
 
+        (new DiscordBotService())->notifyOfficialTreasuryMovement($transactionId);
+
         return [
             'id' => $transactionId,
             'transaction_uuid' => $uuid,
