@@ -828,3 +828,21 @@ This build performs a final theme cleanup so tiles and nested subtile panels use
 ## Final small UI fixes
 
 This build improves Danger Zone readability, rebuilds status tab colours for contrast, cache-busts the main stylesheet, and hides the locked acting-admin pill when account switching is disabled.
+
+## Clearing test transaction and log data
+
+To wipe test transaction data while keeping users, RSNs, accounts, integrations, API keys, and settings, run:
+
+```bash
+php bin/clear-transaction-data.php --dry-run
+php bin/clear-transaction-data.php --force
+```
+
+This clears ledger transactions, ledger lines, Money In/Out requests, reconciliations, admin balance settlements, idempotency records, audit logs, and API request logs. It also resets API key `last_used_at` timestamps by default without deleting the API keys themselves.
+
+To keep API key `last_used_at` values, run:
+
+```bash
+php bin/clear-transaction-data.php --force --keep-api-key-last-used
+```
+
