@@ -823,3 +823,8 @@ This build updates the main application background to a darker brown tone closer
 ## Final UI pass
 
 This build performs a final theme cleanup so tiles and nested subtile panels use dark backgrounds with light text consistently across the app, while keeping form fields and action buttons readable.
+
+
+## Final small UI fixes
+
+This build improves Danger Zone readability, rebuilds status tab colours for contrast, cache-busts the main stylesheet, and hides the locked acting-admin pill when account switching is disabled.

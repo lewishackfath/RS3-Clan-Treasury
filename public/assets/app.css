@@ -1152,3 +1152,128 @@ tr:hover td {
 .scope-check {
     box-shadow: 0 8px 18px rgba(12, 8, 3, .18);
 }
+
+
+/* Final small UI fixes: readable danger zones, status tabs, and nested sand panels */
+.danger-zone,
+details.danger-zone {
+    margin-top: .9rem;
+    border: 1px solid #a85a3a !important;
+    border-radius: .85rem;
+    padding: .8rem .9rem !important;
+    background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.012)), #4f271d !important;
+    color: #f6dfcf !important;
+}
+.danger-zone h2,
+.danger-zone h3,
+.danger-zone strong,
+.danger-zone summary {
+    color: #ffd9c8 !important;
+}
+.danger-zone p,
+.danger-zone .muted,
+.danger-zone label,
+.danger-zone small {
+    color: #e8c2b0 !important;
+}
+.danger-zone textarea,
+.danger-zone input,
+.danger-zone select {
+    background: #e2c79a !important;
+    color: #24190d !important;
+    border-color: #b16d47 !important;
+}
+.danger-zone .button.danger {
+    background: linear-gradient(180deg, #c35b3a, #8f3824) !important;
+    border-color: #d78363 !important;
+    color: #fff3ec !important;
+}
+
+.status-tabs {
+    gap: .5rem;
+}
+.status-tabs a,
+.report-tabs a {
+    background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.015)), #4f3920 !important;
+    border: 1px solid #8c6a36 !important;
+    color: #f0dfbb !important;
+    box-shadow: 0 4px 10px rgba(12, 8, 3, .14);
+}
+.status-tabs a:hover,
+.status-tabs a:focus,
+.report-tabs a:hover,
+.report-tabs a:focus {
+    background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.02)), #614827 !important;
+    border-color: #c79b44 !important;
+    color: #fff2d2 !important;
+    text-decoration: none;
+}
+.status-tabs a.active,
+.report-tabs a.active {
+    background: linear-gradient(180deg, #d6b65e, #b8892d) !important;
+    border-color: #f0c86b !important;
+    color: #24190d !important;
+}
+
+/* Catch remaining old sandy subtiles and keep their text readable. */
+.queue-grid a,
+.quick-form-grid details,
+.request-source-details,
+.history-row,
+.detail-grid div,
+.audit-card,
+.scope-check,
+.config-grid div,
+.report-total,
+.notice-inline,
+.pill,
+.table-wrap,
+table,
+tbody,
+thead,
+tr,
+.api-log-card,
+.source-app-card {
+    background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.012)), #4f3920 !important;
+    border-color: #8c6a36 !important;
+    color: #f5ead0 !important;
+}
+th {
+    background: #6b4e2a !important;
+    color: #f3e3c3 !important;
+}
+td {
+    background: transparent !important;
+    color: #f5ead0 !important;
+}
+td small,
+.table-wrap small,
+.queue-grid span,
+.quick-form-grid details p,
+.request-source-details p,
+.history-row small,
+.detail-grid span,
+.audit-card small,
+.config-grid span,
+.report-total span,
+.notice-inline,
+.pill {
+    color: #dfcaa2 !important;
+}
+.queue-grid strong,
+.quick-form-grid details strong,
+.detail-grid strong,
+.config-grid strong,
+.report-total strong,
+.amount {
+    color: #fff1ce !important;
+}
+tr:hover td {
+    background: rgba(255,255,255,.045) !important;
+}
+
+/* When account switching is locked, the acting-admin pill is intentionally hidden in PHP.
+   Keep this class only for installations where switching is enabled and custom markup is added later. */
+.acting-admin-pill.locked {
+    display: none !important;
+}

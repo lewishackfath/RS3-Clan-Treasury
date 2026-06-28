@@ -962,7 +962,7 @@ $expenseAccounts = $loggedIn ? $accountService->postingAccounts('expense') : [];
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><?= h($appName) ?></title>
     <link rel="icon" href="<?= h(app_favicon_url()) ?>">
-    <link rel="stylesheet" href="assets/app.css">
+    <link rel="stylesheet" href="assets/app.css?v=20260627-ui-final-2">
 </head>
 <body>
 <?php if ($loggedIn && !$needsRsnSetup): ?>
@@ -1026,18 +1026,7 @@ $expenseAccounts = $loggedIn ? $accountService->postingAccounts('expense') : [];
                         }
                     }
                 ?>
-                <?php if (AdminSession::actingAdminLockEnabled()): ?>
-                    <div class="acting-admin-pill locked">
-                        <span>Acting admin</span>
-                        <?php if ($actingAdmin): ?>
-                            <strong><?= h($actingAdmin['display_name'] ?: $actingAdmin['rsn']) ?></strong>
-                            <small>Locked to Discord login</small>
-                        <?php else: ?>
-                            <strong>Not linked</strong>
-                            <small>Link your Discord user ID in Users</small>
-                        <?php endif; ?>
-                    </div>
-                <?php else: ?>
+                <?php if (!AdminSession::actingAdminLockEnabled()): ?>
                     <form method="post" class="inline-form">
                         <input type="hidden" name="_csrf" value="<?= h(Csrf::token()) ?>">
                         <input type="hidden" name="action" value="set_acting_admin">
