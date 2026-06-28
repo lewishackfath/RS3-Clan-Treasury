@@ -813,3 +813,8 @@ The bot needs these permissions in the selected channel:
 The Settings page will use the bot token to resolve the configured guild name, allowed role names, and available text/announcement channels. If the bot token is not configured or the bot cannot read the server, the app falls back to showing the configured IDs.
 
 A Discord message is sent whenever a posted ledger transaction moves GP into or out of the `1000 Official Treasury` account. Admin-balance offsets do not send messages because no GP moves through the official treasury.
+
+
+## Darker textured background
+
+This build updates the main application background to a darker brown tone closer to the sidebar, with a subtle textured effect and slightly stronger card contrast for readability.
