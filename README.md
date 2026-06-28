@@ -818,3 +818,8 @@ A Discord message is sent whenever a posted ledger transaction moves GP into or 
 ## Darker textured background
 
 This build updates the main application background to a darker brown tone closer to the sidebar, with a subtle textured effect and slightly stronger card contrast for readability.
+
+
+## Final UI pass
+
+This build performs a final theme cleanup so tiles and nested subtile panels use dark backgrounds with light text consistently across the app, while keeping form fields and action buttons readable.

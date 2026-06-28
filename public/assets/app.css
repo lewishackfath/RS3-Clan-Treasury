@@ -896,3 +896,259 @@ label small.form-help {
 .detail-grid div {
     box-shadow: 0 8px 18px rgba(12, 8, 3, .18);
 }
+
+
+/* Final UI pass: unify all tiles/subtiles as dark panels with light text */
+:root {
+    --page-bg: #594124;
+    --panel-strong: #4a351e;
+    --panel-mid: #584125;
+    --panel-soft-override: #62492a;
+    --panel-edge: #8c6a36;
+    --panel-title: #f5ead0;
+    --panel-copy: #e2d0ab;
+    --panel-copy-soft: #c8b184;
+}
+
+body {
+    background:
+        radial-gradient(circle at 20% 14%, rgba(255,255,255,.03) 0 0.28rem, transparent 0.34rem),
+        radial-gradient(circle at 78% 10%, rgba(255,255,255,.02) 0 0.2rem, transparent 0.26rem),
+        radial-gradient(circle at 36% 72%, rgba(255,255,255,.018) 0 0.22rem, transparent 0.28rem),
+        repeating-linear-gradient(135deg, rgba(255,255,255,.01) 0 2px, rgba(0,0,0,.009) 2px 4px),
+        linear-gradient(180deg, #6a5030 0%, #584125 58%, #4b361f 100%);
+}
+
+/* Primary panels */
+.card,
+.notice-card,
+.login-card,
+.metric,
+.transaction-card,
+.workflow-card,
+.summary-tile,
+.filter-panel,
+.quick-form-grid > *,
+.quick-form-grid details,
+.queue-grid a,
+.request-source-details,
+.history-row,
+.detail-grid div,
+.audit-card,
+.scope-check,
+.config-grid div,
+.account-edit-form,
+.api-key-edit-form,
+.report-total,
+.nested-form,
+.form-page-card,
+.detail-json pre,
+.audit-json-grid pre,
+.user-history,
+.user-edit,
+.profile-rsns,
+.source-app-card,
+.api-log-summary .summary-tile,
+.api-log-card {
+    background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.012)), var(--panel-strong) !important;
+    border-color: var(--panel-edge) !important;
+    color: var(--panel-title) !important;
+}
+
+/* Secondary nested panels */
+.queue-grid a,
+.request-source-details,
+.history-row,
+.detail-grid div,
+.audit-card,
+.scope-check,
+.config-grid div,
+.quick-form-grid details,
+.report-total,
+.detail-json pre,
+.audit-json-grid pre {
+    background: linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.015)), var(--panel-mid) !important;
+}
+
+/* Text colours on dark tiles */
+.card h2, .card h3, .card h4,
+.notice-card h2, .notice-card h3,
+.metric strong,
+.workflow-card strong,
+.summary-tile strong,
+.transaction-card summary strong,
+.detail-header h2,
+.detail-amount,
+.report-total strong,
+.report-grand-total,
+.config-grid strong,
+.detail-grid strong,
+.audit-card strong,
+.history-row strong,
+.table-wrap strong,
+.card strong,
+.workflow-card,
+.transaction-card,
+.summary-tile,
+.metric,
+.filter-panel,
+.quick-form-grid details,
+.queue-grid a {
+    color: var(--panel-title) !important;
+}
+
+.card p,
+.notice-card p,
+.metric p,
+.metric small,
+.metric span,
+.workflow-card span,
+.workflow-card small,
+.summary-tile span,
+.summary-tile p,
+.transaction-card p,
+.transaction-card small,
+.filter-panel p,
+.filter-panel label,
+.card label,
+.notice-card label,
+.metric label,
+.transaction-card label,
+.workflow-card label,
+.summary-tile label,
+.quick-form-grid details p,
+.queue-grid span,
+.history-row small,
+.audit-card small,
+.audit-json-grid span,
+.detail-grid span,
+.config-grid span,
+.report-total span,
+.detail-json summary,
+.audit-card summary,
+.table-wrap small,
+td small {
+    color: var(--panel-copy) !important;
+}
+
+/* Queue tiles / subtile numbers */
+.queue-grid strong,
+.metric-grid .metric strong,
+.status-summary .summary-tile strong {
+    color: #fff2d2 !important;
+}
+
+/* Tables as dark subtiles */
+.table-wrap {
+    border-color: var(--panel-edge) !important;
+    background: var(--panel-mid) !important;
+}
+
+table {
+    background: var(--panel-mid) !important;
+    color: var(--panel-title) !important;
+}
+
+th {
+    background: #71532d !important;
+    color: #f0dfbb !important;
+    border-bottom-color: var(--panel-edge) !important;
+}
+
+td {
+    color: var(--panel-title) !important;
+    border-bottom-color: rgba(201, 170, 107, .28) !important;
+}
+
+tr:hover td {
+    background: rgba(255,255,255,.04) !important;
+}
+
+.amount { color: #fff1ce !important; }
+.right .amount { color: #fff1ce !important; }
+
+/* Forms inside dark tiles */
+.card input,
+.card select,
+.card textarea,
+.notice-card input,
+.notice-card select,
+.notice-card textarea,
+.filter-panel input,
+.filter-panel select,
+.filter-panel textarea,
+.login-card input,
+.login-card select,
+.login-card textarea,
+.transaction-card input,
+.transaction-card select,
+.transaction-card textarea {
+    background: #dec594;
+    color: #24190d;
+    border-color: #8e6b35;
+}
+
+/* Buttons/links inside dark tiles stay readable */
+.card .button,
+.notice-card .button,
+.metric .button,
+.transaction-card .button,
+.workflow-card .button,
+.summary-tile .button,
+.filter-panel .button,
+.quick-form-grid .button,
+.table-wrap .button {
+    color: #2f220f !important;
+}
+
+.card a,
+.notice-card a,
+.workflow-card a,
+.transaction-card a,
+.filter-panel a,
+.queue-grid a {
+    color: #f0c86b;
+}
+
+/* Hover states for dark tiles */
+.workflow-card:hover,
+.queue-grid a:hover,
+.status-tabs a:hover,
+.status-tabs a.active {
+    background-image: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.02)) !important;
+}
+
+/* Keep top info pills readable but more in-theme */
+.user-pill,
+.acting-admin-pill {
+    background: linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.03)), #d0b178 !important;
+    color: #281d10 !important;
+}
+.user-pill strong,
+.acting-admin-pill strong { color: #281d10 !important; }
+
+/* Login panel final readability */
+.login-card {
+    background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.015)), #4d3820 !important;
+}
+.login-card .brand strong,
+.login-card h1,
+.login-card h2,
+.login-card strong {
+    color: var(--panel-title) !important;
+}
+.login-card .brand small,
+.login-card p,
+.login-card .muted,
+.login-card label {
+    color: var(--panel-copy) !important;
+}
+
+/* Quick actions / details blocks */
+.request-source-details,
+.detail-grid div,
+.audit-card,
+.history-row,
+.scope-check {
+    box-shadow: 0 8px 18px rgba(12, 8, 3, .18);
+}
