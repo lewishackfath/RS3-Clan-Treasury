@@ -588,17 +588,27 @@ final class AdminService
     {
         $pdo = Database::pdo();
         $queries = [
-            'SELECT COUNT(*) FROM treasury_ledger_entries WHERE admin_id = :id',
-            'SELECT COUNT(*) FROM treasury_ledger_entries le INNER JOIN treasury_accounts a ON a.id = le.account_id WHERE a.admin_id = :id',
-            'SELECT COUNT(*) FROM treasury_transactions WHERE posted_by_admin_id = :id',
-            'SELECT COUNT(*) FROM treasury_reconciliations WHERE from_admin_id = :id OR created_by_admin_id = :id OR completed_by_admin_id = :id',
-            'SELECT COUNT(*) FROM treasury_payment_requests WHERE received_by_admin_id = :id',
-            'SELECT COUNT(*) FROM treasury_payout_requests WHERE paid_by_admin_id = :id',
+            ['SELECT COUNT(*) FROM treasury_ledger_entries WHERE admin_id = :id', ['id' => $id]],
+            ['SELECT COUNT(*) FROM treasury_ledger_entries le INNER JOIN treasury_accounts a ON a.id = le.account_id WHERE a.admin_id = :id', ['id' => $id]],
+            ['SELECT COUNT(*) FROM treasury_transactions WHERE posted_by_admin_id = :id', ['id' => $id]],
+            [
+                'SELECT COUNT(*) FROM treasury_reconciliations
+                 WHERE from_admin_id = :from_admin_id
+                    OR created_by_admin_id = :created_by_admin_id
+                    OR completed_by_admin_id = :completed_by_admin_id',
+                [
+                    'from_admin_id' => $id,
+                    'created_by_admin_id' => $id,
+                    'completed_by_admin_id' => $id,
+                ],
+            ],
+            ['SELECT COUNT(*) FROM treasury_payment_requests WHERE received_by_admin_id = :id', ['id' => $id]],
+            ['SELECT COUNT(*) FROM treasury_payout_requests WHERE paid_by_admin_id = :id', ['id' => $id]],
         ];
         $total = 0;
-        foreach ($queries as $sql) {
+        foreach ($queries as [$sql, $params]) {
             $stmt = $pdo->prepare($sql);
-            $stmt->execute(['id' => $id]);
+            $stmt->execute($params);
             $total += (int)$stmt->fetchColumn();
         }
         return $total;
